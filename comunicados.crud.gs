@@ -705,11 +705,24 @@ function enriquecerComunicado(comunicado) {
             // Datos del comunicado
             id: comunicado.id,
             idCuenta: comunicado.idCuenta,
-            cuenta: cuentaObj ? cuentaObj.cuenta : comunicado.idCuenta,
-            cuentaNombre: cuentaObj ? cuentaObj.nombre : '',
             comunicado: comunicado.comunicado,
             status: comunicado.status,
             idSustituido: comunicado.idSustituido || null,
+
+            // Relaciones Enriquecidas
+            cuenta: cuentaObj ? {
+                id: cuentaObj.id,
+                referencia: cuentaObj.referencia || cuentaObj.cuenta,
+                nombre: cuentaObj.referencia || cuentaObj.cuenta
+            } : null,
+            ajustador: ajustador ? {
+                id: ajustador.id,
+                nombre: ajustador.nombreAjustador || ajustador.nombre
+            } : null,
+
+            // Mapeos planos para facilitar binding
+            referencia: cuentaObj ? (cuentaObj.referencia || cuentaObj.cuenta || '') : '',
+            ajustadorNombre: ajustador ? (ajustador.nombreAjustador || ajustador.nombre || '') : 'Sin Ajustador',
 
             // Datos generales
             idDatosGenerales: datosGenerales.id,
@@ -720,15 +733,15 @@ function enriquecerComunicado(comunicado) {
             // Catálogos
             idEstado: datosGenerales.idEstado,
             estado: estado,
-            estadoNombre: estado ? estado.estado : '',
+            estadoNombre: estado ? (estado.estado || estado.nombre) : '',
 
             idDistritoRiego: datosGenerales.idDR,
             distrito: distrito,
-            distritoNombre: distrito ? distrito.distritoRiego : '',
+            distritoNombre: distrito ? (distrito.distritoRiego || distrito.nombre) : '',
 
             idSiniestro: datosGenerales.idSiniestro,
             siniestro: siniestro,
-            siniestroNombre: siniestro ? siniestro.siniestro : '',
+            siniestroNombre: siniestro ? (siniestro.siniestro || siniestro.nombre) : '',
             siniestroDetalle: siniestro ? {
                 codigo: siniestro.siniestro,
                 fenomeno: siniestro.fenomeno || '',
@@ -736,10 +749,8 @@ function enriquecerComunicado(comunicado) {
                 fi: siniestro.fi || ''
             } : null,
 
-            // NUEVO: Ajustador
-            idAjustador: cuentaObj ? cuentaObj.idAjustador : null,
-            ajustador: ajustador,
-            ajustadorNombre: ajustador ? ajustador.nombreAjustador : '',
+            // Mantener campos legacy si el frontend los usa (aunque ajustador ya va arriba)
+            idAjustador: ajustador ? ajustador.id : null,
 
             // Actualización y empresa
             idActualizacion: datosGenerales.idActualizacion,

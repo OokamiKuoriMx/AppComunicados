@@ -77,17 +77,16 @@
                                         <!-- Fila 1: Cuenta + Ajustador -->
                                         <div class="col-md-4">
                                             <label class="form-label small text-muted">
-                                                <i class="bi bi-building me-1"></i>Cuenta
+                                                <i class="bi bi-building me-1"></i>Referencia
                                             </label>
-                                            <input type="text" class="form-control" id="gen-cuenta" readonly>
+                                            <input type="text" class="form-control fw-bold" id="gen-cuenta" readonly>
                                         </div>
                                         <div class="col-md-4">
                                             <label class="form-label small text-muted">
-                                                <i class="bi bi-person-badge me-1"></i>Ajustador
+                                                <i class="bi bi-person-badge me-1"></i>Ajustador (Asignado)
                                             </label>
-                                            <select class="form-select" id="gen-ajustador">
-                                                <option value="">Seleccione ajustador...</option>
-                                            </select>
+                                            <input type="text" class="form-control bg-light" id="gen-ajustador"
+                                                readonly>
                                         </div>
                                         <div class="col-md-4">
                                             <label class="form-label small text-muted">
@@ -290,64 +289,75 @@
                     </div>
 
                     <!-- TAB: FINANCIERO -->
+                    <!-- TAB: FINANCIERO -->
                     <div class="tab-pane fade" id="tab-financiero" role="tabpanel">
-                        <div class="row g-4">
-                            <div class="col-md-8">
-                                <!-- Estimaciones -->
-                                <div class="card shadow-sm border-0 mb-4">
-                                    <div
-                                        class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                                        <h6 class="mb-0 fw-bold">Estimaciones</h6>
-                                        <button class="btn btn-outline-primary btn-sm" id="btn-add-estimacion">
-                                            <i class="bi bi-plus-lg"></i> Nueva Estimación
-                                        </button>
-                                    </div>
-                                    <div class="card-body p-0">
-                                        <div id="lista-estimaciones" class="list-group list-group-flush">
-                                            <div class="text-center py-4 text-muted">
-                                                <small>No hay estimaciones registradas</small>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Facturas -->
-                                <div class="card shadow-sm border-0">
-                                    <div
-                                        class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                                        <h6 class="mb-0 fw-bold">Facturas</h6>
-                                        <button class="btn btn-outline-primary btn-sm" id="btn-add-factura">
-                                            <i class="bi bi-plus-lg"></i> Registrar Factura
-                                        </button>
-                                    </div>
-                                    <div class="card-body p-0">
-                                        <div id="lista-facturas" class="list-group list-group-flush">
-                                            <div class="text-center py-4 text-muted">
-                                                <small>No hay facturas registradas</small>
-                                            </div>
-                                        </div>
+                        <!-- Resumen Financiero Superior -->
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-4">
+                                <div
+                                    class="card shadow-sm border-0 h-100 bg-light-primary border-start border-4 border-primary">
+                                    <div class="card-body">
+                                        <small class="text-muted fw-bold text-uppercase">Presupuesto Autorizado</small>
+                                        <div class="fs-4 fw-bold text-dark mt-1" id="fin-autorizado">$0.00</div>
                                     </div>
                                 </div>
                             </div>
-
                             <div class="col-md-4">
-                                <div class="card shadow-sm border-0 mb-3">
+                                <div
+                                    class="card shadow-sm border-0 h-100 bg-light-success border-start border-4 border-success">
                                     <div class="card-body">
-                                        <h6 class="fw-bold text-muted mb-3">Resumen Financiero</h6>
-                                        <div class="d-flex justify-content-between mb-2">
-                                            <span>Autorizado:</span>
-                                            <span class="fw-bold" id="fin-autorizado">$0.00</span>
-                                        </div>
-                                        <div class="d-flex justify-content-between mb-2">
-                                            <span>Ejercido:</span>
-                                            <span class="fw-bold text-success" id="fin-ejercido">$0.00</span>
-                                        </div>
-                                        <div class="d-flex justify-content-between border-top pt-2">
-                                            <span>Por Ejercer:</span>
-                                            <span class="fw-bold text-primary" id="fin-por-ejercer">$0.00</span>
-                                        </div>
+                                        <small class="text-muted fw-bold text-uppercase">Ejercido (Avance Obra)</small>
+                                        <div class="fs-4 fw-bold text-success mt-1" id="fin-ejercido">$0.00</div>
                                     </div>
                                 </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div
+                                    class="card shadow-sm border-0 h-100 bg-light-info border-start border-4 border-info">
+                                    <div class="card-body">
+                                        <small class="text-muted fw-bold text-uppercase">Por Ejercer</small>
+                                        <div class="fs-4 fw-bold text-primary mt-1" id="fin-por-ejercer">$0.00</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tabla Detallada Unificada -->
+                        <div class="card shadow-sm border-0">
+                            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-0 fw-bold">Estimaciones y Facturación</h6>
+                                    <small class="text-muted">Desglose de estimaciones, amortizaciones y facturas
+                                        asociadas</small>
+                                </div>
+                                <button class="btn btn-primary btn-sm" id="btn-add-estimacion">
+                                    <i class="bi bi-plus-lg"></i> Registrar Estimación
+                                </button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0 small checkbox-fix">
+                                    <thead class="bg-light text-secondary">
+                                        <tr>
+                                            <th style="min-width: 80px;">No.</th>
+                                            <th style="min-width: 110px;">Fecha</th>
+                                            <th class="text-end" style="min-width: 120px;">Monto Ejecutado</th>
+                                            <th class="text-end" style="min-width: 120px;">Amortización</th>
+                                            <th class="text-end bg-light" style="min-width: 110px;">Subtotal</th>
+                                            <th class="text-end bg-light" style="min-width: 100px;">IVA</th>
+                                            <th class="text-end fw-bold text-success" style="min-width: 120px;">Total
+                                                Factura</th>
+                                            <th style="min-width: 120px;">Folio Factura</th>
+                                            <th style="width: 50px;"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="lista-estimaciones-body">
+                                        <tr>
+                                            <td colspan="9" class="text-center py-5 text-muted">
+                                                Cargando información financiera...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>

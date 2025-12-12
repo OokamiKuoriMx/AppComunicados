@@ -190,25 +190,31 @@
 
         function _renderData() {
             const d = state.data;
+
+            // Header
             dom.headerTitle.textContent = d.comunicado || 'Nuevo Comunicado';
-            const cuentaRef = d.cuenta?.referencia || d.cuenta?.cuenta || 'Sin Asignar';
-            dom.headerSubtitle.textContent = `ID: ${d.id} | Ref: ${cuentaRef}`;
+            // Mapeo: Referencia (antes Cuenta)
+            const referencia = d.referencia || d.cuenta?.referencia || d.cuenta?.cuenta || 'Sin Referencia';
+            dom.headerSubtitle.textContent = `ID: ${d.id} | Ref: ${referencia}`;
 
+            // Datos Generales
             dom.genId.value = d.id || '';
-            dom.genCuenta.value = cuentaRef;
+            dom.genCuenta.value = referencia; // Campo visual "Referencia"
 
-            // AJUSTADOR (Solo Lectura)
-            const nombreAjustador = d.cuenta?.ajustador?.nombreAjustador || d.ajustador?.nombreAjustador || 'No asignado a la cuenta';
+            // AJUSTADOR (Solo Lectura - Heredado de Cuenta)
+            // Backend ahora envía d.ajustador = { id, nombre }
+            const nombreAjustador = d.ajustador?.nombre || d.ajustadorNombre || 'Sin Ajustador Asignado';
+
             if (dom.genAjustador) {
-                // Forzar visualización de solo lectura
                 if (dom.genAjustador.tagName === 'SELECT') {
+                    // Si quedó como select, lo forzamos a mostrar solo el valor actual
                     dom.genAjustador.innerHTML = `<option selected>${nombreAjustador}</option>`;
                     dom.genAjustador.disabled = true;
                 } else {
                     dom.genAjustador.value = nombreAjustador;
                     dom.genAjustador.readOnly = true;
                 }
-                dom.genAjustador.classList.add('bg-light');
+                dom.genAjustador.classList.add('bg-light', 'text-dark', 'fw-bold');
             }
 
             dom.genFecha.value = _formatDateISO(d.fecha);

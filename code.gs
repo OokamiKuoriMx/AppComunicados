@@ -27,16 +27,17 @@ function include(nombreArchivo) {
  */
 const TABLE_DEFINITIONS = Object.freeze({
 
-    // -- Definición para la tabla de Cuentas --
+    // -- Definición para la tabla de Referencias (antes Cuentas) --
     cuentas: {
-        sheetName: 'Cuentas',
+        sheetName: 'Referencias',
         primaryField: 'id',
-        requiredFields: ['cuenta'],
-        uniqueFields: ['id', 'cuenta'],
+        nameField: 'referencia',
+        requiredFields: ['referencia'],
+        uniqueFields: ['id', 'referencia'],
         headers: {
             id: ['id', 'ID', 'Folio'],
-            cuenta: ['cuenta', 'Cuenta', 'NombreCuenta'],
-            idAjustador: ['idAjustador', 'AjustadorId', 'Ajustador'] // MOVIDO AQUÍ
+            referencia: ['referencia', 'Referencia', 'cuenta', 'Cuenta', 'NombreCuenta'],
+            idAjustador: ['idAjustador', 'AjustadorId', 'Ajustador']
         }
     },
 
@@ -132,7 +133,7 @@ const TABLE_DEFINITIONS = Object.freeze({
         }
     },
     ajustadores: {
-        sheetName: 'Ajustador',
+        sheetName: 'Ajustadores',
         primaryField: 'id',
         nameField: 'nombreAjustador',
         requiredFields: ['nombreAjustador'],
