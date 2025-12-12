@@ -128,7 +128,7 @@
             if (!dom.listaCuentas) return;
 
             if (!cuentas.length) {
-                _renderPlaceholder('listaCuentas', 'No hay cuentas registradas', 'Agrega una cuenta para comenzar.');
+                _renderPlaceholder('listaCuentas', 'No hay referencias registradas', 'Agrega una referencia para comenzar.');
                 return;
             }
 
@@ -157,7 +157,7 @@
             if (!dom.panelComunicados) return;
 
             if (!hasValue(cuentaSeleccionadaId)) {
-                _renderPlaceholder('panelComunicados', 'Selecciona una cuenta', 'Aquí verás sus comunicados.');
+                _renderPlaceholder('panelComunicados', 'Selecciona una referencia', 'Aquí verás sus comunicados.');
                 return;
             }
             if (!comunicados.length) {
@@ -212,7 +212,7 @@
             const total = state.cuentas.length;
 
             if (total > 0) {
-                dom.badgeTotalCuentas.textContent = `${total} ${total === 1 ? 'cuenta' : 'cuentas'}`;
+                dom.badgeTotalCuentas.textContent = `${total} ${total === 1 ? 'referencia' : 'referencias'}`;
                 dom.badgeTotalCuentas.hidden = false;
             } else {
                 dom.badgeTotalCuentas.hidden = true;
@@ -229,7 +229,7 @@
             }
 
             if (state.dom.badgeCuentaSeleccionada) {
-                state.dom.badgeCuentaSeleccionada.textContent = cuenta ? cuenta.referencia : 'Sin cuenta';
+                state.dom.badgeCuentaSeleccionada.textContent = cuenta ? cuenta.referencia : 'Sin referencia';
                 state.dom.badgeCuentaSeleccionada.classList.toggle('text-bg-primary', !!cuenta);
                 state.dom.badgeCuentaSeleccionada.classList.toggle('text-bg-secondary', !cuenta);
             }
@@ -366,7 +366,7 @@
 
                 state.cuentaSeleccionadaId = savedData.id;
                 modals.cuenta?.hide();
-                globalThis.showToast?.(id ? 'Cuenta actualizada.' : 'Cuenta creada.');
+                globalThis.showToast?.(id ? 'Referencia actualizada.' : 'Referencia creada.');
                 await _loadCuentas();
             } catch (error) {
                 alert(`Error al guardar: ${error.message}`);
@@ -401,7 +401,7 @@
                     state.cuentaSeleccionadaId = null;
                 }
                 modals.delete?.hide();
-                globalThis.showToast?.('Cuenta eliminada.');
+                globalThis.showToast?.('Referencia eliminada.');
                 await _loadCuentas();
             } catch (error) {
                 alert(`Error al eliminar: ${error.message}`);
@@ -959,7 +959,7 @@
         // SUBFUNCIÓN: Carga las cuentas del servidor
         const _loadCuentas = async () => {
             // Mostrar spinner mientras se cargan las cuentas
-            _renderSpinner('listaCuentas', 'Cargando cuentas...');
+            _renderSpinner('listaCuentas', 'Cargando referencias...');
 
             const cuentas = await serverCall('readAllRows', 'cuentas');
 
