@@ -74,22 +74,40 @@
                                             <label class="form-label small text-muted">ID Comunicado</label>
                                             <input type="text" class="form-control bg-light" id="gen-id" readonly>
                                         </div>
-                                        <!-- Fila Principal: Cuenta, Comunicado, Fecha -->
-                                        <div class="col-md-3">
-                                            <label class="form-label small text-muted">Cuenta</label>
-                                            <input type="text" class="form-control" id="gen-cuenta">
+                                        <!-- Fila 1: Cuenta + Ajustador -->
+                                        <div class="col-md-4">
+                                            <label class="form-label small text-muted">
+                                                <i class="bi bi-building me-1"></i>Cuenta
+                                            </label>
+                                            <input type="text" class="form-control" id="gen-cuenta" readonly>
                                         </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label small text-muted">Comunicado</label>
-                                            <input type="text" class="form-control fw-bold" id="gen-comunicado">
+                                        <div class="col-md-4">
+                                            <label class="form-label small text-muted">
+                                                <i class="bi bi-person-badge me-1"></i>Ajustador
+                                            </label>
+                                            <select class="form-select" id="gen-ajustador">
+                                                <option value="">Seleccione ajustador...</option>
+                                            </select>
                                         </div>
-                                        <div class="col-md-3">
-                                            <label class="form-label small text-muted">Fecha de Registro</label>
+                                        <div class="col-md-4">
+                                            <label class="form-label small text-muted">
+                                                <i class="bi bi-calendar-event me-1"></i>Fecha de Registro
+                                            </label>
                                             <input type="date" class="form-control" id="gen-fecha">
                                         </div>
+                                        <!-- Fila 2: Comunicado -->
                                         <div class="col-12">
-                                            <label class="form-label small text-muted">Descripción Detallada</label>
-                                            <textarea class="form-control" id="gen-descripcion" rows="4"></textarea>
+                                            <label class="form-label small text-muted">
+                                                <i class="bi bi-file-earmark-text me-1"></i>Comunicado
+                                            </label>
+                                            <input type="text" class="form-control fw-bold" id="gen-comunicado">
+                                        </div>
+                                        <!-- Fila 3: Descripción -->
+                                        <div class="col-12">
+                                            <label class="form-label small text-muted">
+                                                <i class="bi bi-card-text me-1"></i>Descripción Detallada
+                                            </label>
+                                            <textarea class="form-control" id="gen-descripcion" rows="3"></textarea>
                                         </div>
                                     </div>
                                 </form>

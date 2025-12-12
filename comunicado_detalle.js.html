@@ -108,6 +108,7 @@
             // Inputs Generales
             dom.genId = document.getElementById('gen-id');
             dom.genCuenta = document.getElementById('gen-cuenta');
+            dom.genAjustador = document.getElementById('gen-ajustador'); // NUEVO
             dom.genFecha = document.getElementById('gen-fecha');
             dom.genComunicado = document.getElementById('gen-comunicado');
             dom.genDescripcion = document.getElementById('gen-descripcion');
@@ -291,6 +292,17 @@
                 });
             }
 
+            // NUEVO: Ajustadores
+            if (dom.genAjustador && state.catalogs.ajustadores) {
+                dom.genAjustador.innerHTML = '<option value="">Seleccione ajustador...</option>';
+                state.catalogs.ajustadores.forEach(aj => {
+                    const opt = document.createElement('option');
+                    opt.value = aj.id;
+                    opt.textContent = aj.nombreAjustador || aj.nombre;
+                    dom.genAjustador.appendChild(opt);
+                });
+            }
+
             // Configurar Combobox Siniestros
             if (state.catalogs.siniestros) {
                 _setupCombobox(
@@ -432,6 +444,11 @@
                 ? (d.cuenta?.nombre || d.cuenta?.cuenta || d.idCuenta || '')
                 : (d.cuenta || d.idCuenta || '');
             dom.genCuenta.value = cuentaValor;
+
+            // AJUSTADOR
+            if (dom.genAjustador && d.idAjustador) {
+                dom.genAjustador.value = d.idAjustador;
+            }
 
             dom.genFecha.value = _formatDateForInput(d.fecha);
             dom.genComunicado.value = d.comunicado || '';
@@ -846,6 +863,7 @@
                     comunicado: dom.genComunicado.value,
                     fecha: dom.genFecha.value,
                     descripcion: dom.genDescripcion.value,
+                    idAjustador: dom.genAjustador?.value || null, // NUEVO
                     idEstado: dom.genEstado.value,
                     distrito: dom.genDistrito.value,
                     siniestro: dom.genSiniestro.value,

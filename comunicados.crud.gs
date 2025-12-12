@@ -73,13 +73,14 @@ function getComunicadoCatalogs() {
         const estados = leerCatalogo('estados');
         const distritos = leerCatalogo('distritosRiego');
         const siniestros = leerCatalogo('siniestros');
+        const ajustadores = leerCatalogo('ajustadores');
 
         // 4. Procesar datos (ordenar)
         const processResponse = (data) => {
             if (Array.isArray(data)) {
                 return data.sort((a, b) => {
-                    const nombreA = String(a.nombre || a.estado || a.distritoRiego || a.siniestro || '');
-                    const nombreB = String(b.nombre || b.estado || b.distritoRiego || b.siniestro || '');
+                    const nombreA = String(a.nombre || a.nombreAjustador || a.estado || a.distritoRiego || a.siniestro || '');
+                    const nombreB = String(b.nombre || b.nombreAjustador || b.estado || b.distritoRiego || b.siniestro || '');
                     return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
                 });
             }
@@ -92,6 +93,7 @@ function getComunicadoCatalogs() {
                 estados: processResponse(estados),
                 distritosRiego: processResponse(distritos),
                 siniestros: processResponse(siniestros),
+                ajustadores: processResponse(ajustadores),
                 debugLogs: debugLog // Devolver logs dentro de data para sobrevivir al unwrap
             }
         };
@@ -610,6 +612,10 @@ function enriquecerComunicado(comunicado) {
         const siniestroResult = buscarPorId('siniestros', datosGenerales.idSiniestro);
         const siniestro = siniestroResult.success ? siniestroResult.data : null;
 
+        // NUEVO: Leer ajustador
+        const ajustadorResult = buscarPorId('ajustadores', datosGenerales.idAjustador);
+        const ajustador = ajustadorResult.success ? ajustadorResult.data : null;
+
         // Buscar cuenta asociada
         const cuentaResult = buscarPorId('cuentas', comunicado.idCuenta);
         const cuentaObj = cuentaResult.success ? cuentaResult.data : null;
@@ -727,6 +733,11 @@ function enriquecerComunicado(comunicado) {
                 fi: siniestro.fi || ''
             } : null,
 
+            // NUEVO: Ajustador
+            idAjustador: datosGenerales.idAjustador,
+            ajustador: ajustador,
+            ajustadorNombre: ajustador ? ajustador.nombreAjustador : '',
+
             // Actualización y empresa
             idActualizacion: datosGenerales.idActualizacion,
             actualizacionVigente: actualizacionVigente,
@@ -806,6 +817,7 @@ function updateComunicado(id, updates) {
         if (updates.descripcion) updatesDatosGenerales.descripcion = updates.descripcion;
         if (updates.fecha) updatesDatosGenerales.fecha = updates.fecha;
         if (updates.idEstado) updatesDatosGenerales.idEstado = updates.idEstado;
+        if (updates.idAjustador) updatesDatosGenerales.idAjustador = updates.idAjustador; // NUEVO
 
         // Manejo de catálogos (Distrito y Siniestro)
         if (updates.distrito) {

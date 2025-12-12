@@ -67,6 +67,7 @@ const TABLE_DEFINITIONS = Object.freeze({
             fecha: ['fecha', 'Fecha'],
             idEstado: ['idEstado', 'EstadoId', 'Estado'],
             idDR: ['idDR', 'IdDistritoRiego', 'DistritoRiegoId'],
+            idAjustador: ['idAjustador', 'AjustadorId', 'Ajustador'], // NUEVO
             fechaAsignacion: ['fechaAsignacion', 'FechaAsignacion'],
             idSiniestro: ['idSiniestro', 'SiniestroId'],
             idActualizacion: ['idActualizacion', 'ActualizacionId']
@@ -127,6 +128,18 @@ const TABLE_DEFINITIONS = Object.freeze({
         headers: {
             id: ['id', 'ID', 'IdEmpresa'],
             razonSocial: ['razonSocial', 'RazonSocial', 'Razón Social', 'Empresa']
+        }
+    },
+    ajustadores: {
+        sheetName: 'Ajustador',
+        primaryField: 'id',
+        nameField: 'nombreAjustador',
+        requiredFields: ['nombreAjustador'],
+        uniqueFields: ['id', 'nombreAjustador'],
+        headers: {
+            id: ['id', 'ID', 'IdAjustador'],
+            nombreAjustador: ['nombreAjustador', 'NombreAjustador', 'Ajustador'],
+            nombre: ['nombre', 'Nombre', 'Abreviatura']
         }
     },
 
