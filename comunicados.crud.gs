@@ -2,7 +2,7 @@
  * ============================================================================
  * ARCHIVO: comunicados.crud.gs
  * Descripción: Operaciones CRUD para Comunicados
- * Versión: 2.3 (Restaurada y Corregida - Full Repair)
+ * Versión: 2.4 (Fix: Ajustador Integration Check)
  * ============================================================================
  */
 
@@ -612,13 +612,16 @@ function enriquecerComunicado(comunicado) {
         const siniestroResult = buscarPorId('siniestros', datosGenerales.idSiniestro);
         const siniestro = siniestroResult.success ? siniestroResult.data : null;
 
-        // NUEVO: Leer ajustador
-        const ajustadorResult = buscarPorId('ajustadores', datosGenerales.idAjustador);
-        const ajustador = ajustadorResult.success ? ajustadorResult.data : null;
-
         // Buscar cuenta asociada
         const cuentaResult = buscarPorId('cuentas', comunicado.idCuenta);
         const cuentaObj = cuentaResult.success ? cuentaResult.data : null;
+
+        // MOVIDO: Leer ajustador desde la CUENTA
+        let ajustador = null;
+        if (cuentaObj && cuentaObj.idAjustador) {
+            const ajustadorResult = buscarPorId('ajustadores', cuentaObj.idAjustador);
+            ajustador = ajustadorResult.success ? ajustadorResult.data : null;
+        }
 
         // Leer actualización vigente
         let actualizacionVigente = null;
@@ -734,7 +737,7 @@ function enriquecerComunicado(comunicado) {
             } : null,
 
             // NUEVO: Ajustador
-            idAjustador: datosGenerales.idAjustador,
+            idAjustador: cuentaObj ? cuentaObj.idAjustador : null,
             ajustador: ajustador,
             ajustadorNombre: ajustador ? ajustador.nombreAjustador : '',
 
@@ -817,7 +820,19 @@ function updateComunicado(id, updates) {
         if (updates.descripcion) updatesDatosGenerales.descripcion = updates.descripcion;
         if (updates.fecha) updatesDatosGenerales.fecha = updates.fecha;
         if (updates.idEstado) updatesDatosGenerales.idEstado = updates.idEstado;
-        if (updates.idAjustador) updatesDatosGenerales.idAjustador = updates.idAjustador; // NUEVO
+        // if (updates.idAjustador) ... ELIMINADO de aquí porque va en Cuentas
+
+        // Si hay actualización de Ajustador, actualizar la tabla CUENTAS
+        if (updates.idAjustador) {
+            // Necesitamos saber el idCuenta
+            const comunicadoActualResult = readRow('comunicados', comunicadoId);
+            if (comunicadoActualResult.success && comunicadoActualResult.data) {
+                const idCuenta = comunicadoActualResult.data.idCuenta;
+                if (idCuenta) {
+                    actualizarRegistro('cuentas', idCuenta, { idAjustador: updates.idAjustador });
+                }
+            }
+        }
 
         // Manejo de catálogos (Distrito y Siniestro)
         if (updates.distrito) {

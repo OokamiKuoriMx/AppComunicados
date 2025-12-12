@@ -35,7 +35,8 @@ const TABLE_DEFINITIONS = Object.freeze({
         uniqueFields: ['id', 'cuenta'],
         headers: {
             id: ['id', 'ID', 'Folio'],
-            cuenta: ['cuenta', 'Cuenta', 'NombreCuenta']
+            cuenta: ['cuenta', 'Cuenta', 'NombreCuenta'],
+            idAjustador: ['idAjustador', 'AjustadorId', 'Ajustador'] // MOVIDO AQUÍ
         }
     },
 
@@ -67,7 +68,7 @@ const TABLE_DEFINITIONS = Object.freeze({
             fecha: ['fecha', 'Fecha'],
             idEstado: ['idEstado', 'EstadoId', 'Estado'],
             idDR: ['idDR', 'IdDistritoRiego', 'DistritoRiegoId'],
-            idAjustador: ['idAjustador', 'AjustadorId', 'Ajustador'], // NUEVO
+            // idAjustador REMOVIDO DE AQUÍ
             fechaAsignacion: ['fechaAsignacion', 'FechaAsignacion'],
             idSiniestro: ['idSiniestro', 'SiniestroId'],
             idActualizacion: ['idActualizacion', 'ActualizacionId']
