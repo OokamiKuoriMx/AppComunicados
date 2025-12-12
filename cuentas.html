@@ -1,0 +1,212 @@
+<section class="card shadow-sm" id="cuentas-dashboard">
+    <div
+        class="card-header bg-light d-flex flex-column flex-lg-row gap-3 justify-content-between align-items-lg-center">
+        <div>
+            <h1 class="card-title h5 mb-1">Gestor de Cuentas y Comunicados</h1>
+            <p class="text-muted small mb-0">Selecciona una cuenta para visualizar y gestionar sus comunicados
+                asociados.</p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-primary" id="btnAbrirModalCuenta" data-bs-toggle="modal"
+                data-bs-target="#modalCuenta">
+                <i class="bi bi-plus-circle"></i> Agregar Cuenta
+            </button>
+            <button type="button" class="btn btn-outline-primary" id="btnNuevoComunicado" disabled>
+                <i class="bi bi-megaphone"></i> Nuevo Comunicado
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-4">
+            <div class="col-lg-5">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h2 class="h6 mb-1">Cuentas Registradas</h2>
+                        <p class="text-muted small mb-0">Selecciona una cuenta para ver sus comunicados asociados.</p>
+                    </div>
+                    <span class="badge text-bg-light" id="badgeTotalCuentas" hidden>0 cuentas</span>
+                </div>
+                <div id="lista-cuentas" class="vstack gap-2" role="list" aria-live="polite">
+                    <div class="border rounded p-4 text-center text-muted bg-light-subtle" id="placeholder-cuentas">
+                        <p class="mb-1 fw-semibold">No hay cuentas registradas</p>
+                        <p class="mb-0 small">Agrega una cuenta para comenzar.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h2 class="h6 mb-1">Comunicados Asociados</h2>
+                        <span class="badge text-bg-secondary" id="badgeCuentaSeleccionada">Sin cuenta
+                            seleccionada</span>
+                    </div>
+                </div>
+                <div id="panel-comunicados" class="vstack gap-2" role="region" aria-live="polite">
+                    <div class="border rounded p-4 text-center text-muted bg-light-subtle" id="placeholder-comunicados">
+                        <p class="mb-1 fw-semibold">Selecciona una cuenta</p>
+                        <p class="mb-0 small">Aquí verás los comunicados vinculados a la cuenta elegida.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Modal para Nuevo Comunicado -->
+<div class="modal fade" id="modalNuevoComunicado" tabindex="-1" aria-labelledby="modalNuevoComunicadoLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="form-comunicado" novalidate>
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="modalNuevoComunicadoLabel">Registrar Comunicado</h5>
+                        <p class="mb-0 small text-muted">Cuenta seleccionada: <span id="modalCuentaSeleccionada"
+                                class="fw-semibold"></span></p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body" style="overflow-y: auto; max-height: 65vh;">
+                    <div class="alert alert-danger d-none" role="alert" id="alertErrorComunicado"></div>
+                    <div class="alert alert-info d-none" role="alert" id="alertInfoComunicado"></div>
+
+                    <div class="row g-3">
+                        <!-- Fila 1: Comunicado y Fecha -->
+                        <div class="col-md-9">
+                            <label for="comunicadoNombre" class="form-label">Comunicado</label>
+                            <input type="text" class="form-control text-uppercase" id="comunicadoNombre" required
+                                autocomplete="off" maxlength="180" placeholder="Ej: REHABILITACION DE CANALES">
+                            <div class="invalid-feedback">El nombre del comunicado es obligatorio.</div>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="comunicadoFecha" class="form-label">Fecha</label>
+                            <input type="date" class="form-control" id="comunicadoFecha" required>
+                            <div class="invalid-feedback">Selecciona la fecha del comunicado.</div>
+                        </div>
+
+                        <!-- Fila 2: Descripción -->
+                        <div class="col-12">
+                            <label for="comunicadoDescripcion" class="form-label">Descripción</label>
+                            <textarea class="form-control" id="comunicadoDescripcion" rows="2" required
+                                placeholder="Describe brevemente el comunicado"></textarea>
+                            <div class="invalid-feedback">La descripción es obligatoria.</div>
+                        </div>
+
+                        <!-- Fila 3: Estado y Distrito de Riego -->
+                        <div class="col-md-3">
+                            <label for="comunicadoEstado" class="form-label">Estado</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="comunicadoEstado" required autocomplete="off" placeholder="Ej: DURANGO"
+                                    role="combobox" data-bs-toggle="dropdown" aria-haspopup="listbox"
+                                    aria-autocomplete="list" aria-expanded="false" aria-owns="estadoSuggestions">
+                                <input type="hidden" id="comunicadoEstadoId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions" id="estadoSuggestions"
+                                    role="listbox" style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Selecciona el estado.</div>
+                        </div>
+                        <div class="col-md-9">
+                            <label for="comunicadoDistrito" class="form-label">Distrito de Riego</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="comunicadoDistrito" required autocomplete="off"
+                                    placeholder="Ej: DR-001 PABELLON" role="combobox" data-bs-toggle="dropdown"
+                                    aria-haspopup="listbox" aria-autocomplete="list" aria-expanded="false"
+                                    aria-owns="distritoSuggestions">
+                                <input type="hidden" id="comunicadoDistritoId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions" id="distritoSuggestions"
+                                    role="listbox" style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Selecciona el distrito de riego.</div>
+                        </div>
+
+                        <!-- Fila 4: Siniestro -->
+                        <div class="col-12">
+                            <label for="comunicadoSiniestro" class="form-label">Siniestro</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="comunicadoSiniestro" required autocomplete="off" placeholder="Ej: SEQUIA 2024"
+                                    role="combobox" data-bs-toggle="dropdown" aria-haspopup="listbox"
+                                    aria-autocomplete="list" aria-expanded="false" aria-owns="siniestroSuggestions">
+                                <input type="hidden" id="comunicadoSiniestroId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions" id="siniestroSuggestions"
+                                    role="listbox" style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Selecciona o registra el siniestro.</div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 border rounded p-3 bg-light-subtle d-none" id="wrapperSiniestroExtra">
+                        <p class="mb-3 small text-muted" id="siniestroExtraLabel">Captura los datos del nuevo siniestro.
+                        </p>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label for="siniestroFenomeno" class="form-label">Fenómeno</label>
+                                <input type="text" class="form-control text-uppercase" id="siniestroFenomeno"
+                                    placeholder="Ej: HURACAN, SEQUIA, INUNDACION">
+                            </div>
+                            <div class="col-12 mt-3">
+                                <label for="siniestroFi" class="form-label">FI</label>
+                                <input type="text" class="form-control text-uppercase" id="siniestroFi"
+                                    placeholder="Ej: CICLO P-V 2024, INICIO DE LLUVIAS">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btnGuardarComunicado">Guardar Comunicado</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Crear/Editar Cuenta -->
+<div class="modal fade" id="modalCuenta" tabindex="-1" aria-labelledby="modalCuentaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="form-cuenta" novalidate>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalCuentaLabel">Agregar Nueva Cuenta</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="cuentaId">
+                    <div class="mb-3">
+                        <label for="nombreCuenta" class="form-label">Nombre de la Cuenta</label>
+                        <input type="text" class="form-control" id="nombreCuenta"
+                            oninput="this.value = this.value.toUpperCase()" required placeholder="Ej: AM005837">
+                        <div class="invalid-feedback">El nombre de la cuenta es obligatorio.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" class="btn btn-primary" id="btnGuardarCuenta">Guardar Cuenta</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Confirmar Eliminación -->
+<div class="modal fade" id="modalConfirmDelete" tabindex="-1" aria-labelledby="modalConfirmDeleteLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalConfirmDeleteLabel">Confirmar eliminación</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p>¿Seguro que deseas eliminar la cuenta <strong id="deleteAccountName"></strong>? Esta acción no se
+                    puede deshacer.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmDelete">Sí, eliminar</button>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,15 @@
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archivos temporales
+*.tmp
+*.temp
+~$*
+
+# Logs
+*.log
+
+# Archivos de configuración local (si aplica)
+.clasp.json

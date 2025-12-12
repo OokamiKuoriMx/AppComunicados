@@ -1,0 +1,953 @@
+<script>
+    /**
+     * Componente Comunicados
+     * Muestra una tabla detallada de todos los comunicados.
+     */
+    globalThis.Comunicados = (() => {
+        'use strict';
+
+        // Estado local del componente
+        let state = {
+            comunicados: [],
+            catalogs: { estados: [], distritosRiego: [], siniestros: [] },
+            loading: false,
+            error: null,
+            isEditing: false
+        };
+
+        // Referencias al DOM
+        let dom = {};
+        let modalInstance = null;
+        let comunicadoActual = null;
+
+        /**
+         * Utilidad local para escapar HTML
+         */
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, m => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[m]));
+        }
+
+        /**
+         * Renderiza el spinner inicial
+         */
+        function _renderSpinnerInicial(container) {
+            container.innerHTML = `
+                <section class="card shadow-sm">
+                    <div class="card-body text-center p-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Cargando vista...</p>
+                    </div>
+                </section>
+            `;
+        }
+
+        /**
+         * Carga el HTML del componente desde el servidor
+         */
+        async function _mount(container) {
+            console.log('=== PASO 2: Cargar HTML del componente Comunicados ===');
+            _renderSpinnerInicial(container);
+
+            try {
+                await new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(html => {
+                            container.innerHTML = html;
+                            console.log('✅ PASO 2 completado');
+                            resolve(html);
+                        })
+                        .withFailureHandler(error => {
+                            reject(error);
+                        })
+                        .include('comunicados');
+                });
+            } catch (error) {
+                console.error('❌ PASO 2 falló:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * Cachea referencias a elementos del DOM
+         */
+        function _cacheDomElements() {
+            dom.loader = document.getElementById('comunicados-loader');
+            dom.tableContainer = document.getElementById('comunicados-table-container');
+            dom.tbody = document.getElementById('lista-comunicados-body');
+            dom.errorAlert = document.getElementById('comunicados-error');
+            dom.emptyState = document.getElementById('comunicados-empty');
+            dom.totalBadge = document.getElementById('total-comunicados-badge');
+            dom.btnRecargar = document.getElementById('btnRecargarComunicados');
+
+            // Elementos del modal
+            dom.modal = document.getElementById('modalDetalleComunicado');
+            dom.modalLoader = document.getElementById('modal-comunicado-loader');
+            dom.modalContent = document.getElementById('modal-comunicado-content');
+            dom.modalError = document.getElementById('modal-comunicado-error');
+            dom.btnGuardar = document.getElementById('btnGuardarComunicado');
+            dom.btnEditar = document.getElementById('btnEditarComunicado');
+
+            // Inputs del modal
+            dom.inputDistrito = document.getElementById('detalle-distrito');
+            dom.inputSiniestro = document.getElementById('detalle-siniestro');
+            dom.avisoDistrito = document.getElementById('aviso-nuevo-distrito');
+            dom.avisoSiniestro = document.getElementById('aviso-nuevo-siniestro');
+
+            // Referencias a avisos para validación
+            dom.avisoFenomeno = document.getElementById('aviso-nuevo-fenomeno');
+            dom.avisoFi = document.getElementById('aviso-nuevo-fi');
+            dom.avisoFondo = document.getElementById('aviso-nuevo-fondo');
+
+            if (dom.btnRecargar) {
+                dom.btnRecargar.addEventListener('click', () => {
+                    _loadComunicados();
+                });
+            }
+
+            if (dom.btnGuardar) {
+                dom.btnGuardar.addEventListener('click', () => {
+                    _guardarCambios();
+                });
+            }
+
+            if (dom.btnEditar) {
+                dom.btnEditar.addEventListener('click', () => {
+                    _toggleEdicion(true);
+                });
+            }
+
+            // Listeners para detectar nuevos registros
+            // Configurados aquí en _cacheDomElements para que se ejecuten siempre
+            if (dom.inputDistrito) {
+                dom.inputDistrito.addEventListener('input', () => {
+                    console.log('📝 INPUT evento en distrito');
+                    _verificarNuevoRegistro('distrito');
+                });
+            }
+            if (dom.inputSiniestro) {
+                dom.inputSiniestro.addEventListener('input', () => {
+                    console.log('📝 INPUT evento en siniestro');
+                    _verificarNuevoRegistro('siniestro');
+                    _actualizarDetallesSiniestro();
+                });
+            }
+
+
+            // Inicializar instancia del modal
+            if (dom.modal && typeof bootstrap !== 'undefined') {
+                modalInstance = new bootstrap.Modal(dom.modal);
+
+                // Poblar listas desplegables cuando el modal se muestra (garantiza que DOM esté listo)
+                dom.modal.addEventListener('shown.bs.modal', () => {
+                    console.log('🔔 Modal mostrado, poblando combobox híbridos...');
+                    _poblarCombobox('distrito', state.catalogs.distritosRiego, 'distritoRiego');
+                    _poblarCombobox('siniestro', state.catalogs.siniestros, 'siniestro');
+                    _setupComboboxFilter('distrito', state.catalogs.distritosRiego, 'distritoRiego');
+                    _setupComboboxFilter('siniestro', state.catalogs.siniestros, 'siniestro');
+                });
+
+                dom.modal.addEventListener('hidden.bs.modal', () => {
+                    _toggleEdicion(false); // Resetear al cerrar
+                });
+            }
+        }
+
+        /**
+         * Verifica si el valor ingresado es nuevo o existe en el catálogo
+         */
+        function _verificarNuevoRegistro(tipo) {
+            let input, aviso, valoresUnicos;
+
+            // Configurar según el tipo de campo
+            switch (tipo) {
+                case 'distrito':
+                    input = dom.inputDistrito;
+                    aviso = dom.avisoDistrito;
+                    valoresUnicos = (state.catalogs.distritosRiego || []).map(d =>
+                        String(d.distritoRiego || d.nombre || '').toLowerCase().trim()
+                    );
+                    break;
+                case 'siniestro':
+                    input = dom.inputSiniestro;
+                    aviso = dom.avisoSiniestro;
+                    valoresUnicos = (state.catalogs.siniestros || []).map(s =>
+                        String(s.siniestro || s.nombre || '').toLowerCase().trim()
+                    );
+                    break;
+                case 'fenomeno':
+                    input = dom.inputFenomeno;
+                    aviso = dom.avisoFenomeno;
+                    valoresUnicos = [...new Set((state.catalogs.siniestros || [])
+                        .map(s => String(s.fenomeno || '').trim())
+                        .filter(f => f)
+                        .map(f => f.toLowerCase())
+                    )];
+                    break;
+                case 'fi':
+                    input = dom.inputFi;
+                    aviso = dom.avisoFi;
+                    valoresUnicos = [...new Set((state.catalogs.siniestros || [])
+                        .map(s => String(s.fi || '').trim())
+                        .filter(f => f)
+                        .map(f => f.toLowerCase())
+                    )];
+                    break;
+                case 'fondo':
+                    input = dom.inputFondo;
+                    aviso = dom.avisoFondo;
+                    valoresUnicos = [...new Set((state.catalogs.siniestros || [])
+                        .map(s => String(s.fondo || '').trim())
+                        .filter(f => f)
+                        .map(f => f.toLowerCase())
+                    )];
+                    break;
+                default:
+                    return;
+            }
+
+            if (!input || !aviso) {
+                console.log(`⚠️ _verificarNuevoRegistro(${tipo}): input o aviso no encontrado`, { input, aviso });
+                return;
+            }
+
+            const valor = input.value.trim();
+            if (!valor) {
+                aviso.classList.add('d-none');
+                return;
+            }
+
+            const existe = valoresUnicos.includes(valor.toLowerCase());
+
+            if (tipo === 'siniestro' || tipo === 'distrito') {
+                console.log(`🔍 Verificando ${tipo}:`, {
+                    valor,
+                    existe,
+                    valoresUnicos: valoresUnicos.slice(0, 5),
+                    totalEnCatalogo: valoresUnicos.length
+                });
+            }
+
+            if (!existe) {
+                aviso.classList.remove('d-none');
+                console.log(`✅ Mostrando aviso para ${tipo} nuevo`);
+            } else {
+                aviso.classList.add('d-none');
+                console.log(`ℹ️ ${tipo} existe en catálogo, ocultando aviso`);
+            }
+        }
+
+        /**
+         * Actualiza los campos readonly de siniestro cuando se selecciona uno existente
+         * Y habilita fenómeno/fi/fondo si es un siniestro NUEVO
+         */
+        function _actualizarDetallesSiniestro() {
+            const valor = dom.inputSiniestro.value.trim();
+
+            const campoFenomeno = document.getElementById('detalle-fenomeno');
+            const campoFi = document.getElementById('detalle-fi');
+            const campoFondo = document.getElementById('detalle-fondo');
+
+            if (!valor) {
+                // Si está vacío, limpiar y dejar readonly
+                if (campoFenomeno) {
+                    campoFenomeno.value = '';
+                    campoFenomeno.setAttribute('readonly', 'true');
+                    campoFenomeno.classList.remove('bg-white');
+                    campoFenomeno.classList.add('bg-light');
+                }
+                if (campoFi) {
+                    campoFi.value = '';
+                    campoFi.setAttribute('readonly', 'true');
+                    campoFi.classList.remove('bg-white');
+                    campoFi.classList.add('bg-light');
+                }
+                if (campoFondo) {
+                    campoFondo.value = '';
+                    campoFondo.setAttribute('readonly', 'true');
+                    campoFondo.classList.remove('bg-white');
+                    campoFondo.classList.add('bg-light');
+                }
+                // Ocultar advertencias
+                if (dom.avisoFenomeno) dom.avisoFenomeno.classList.add('d-none');
+                if (dom.avisoFi) dom.avisoFi.classList.add('d-none');
+                if (dom.avisoFondo) dom.avisoFondo.classList.add('d-none');
+                return;
+            }
+
+            const siniestroEncontrado = state.catalogs.siniestros.find(s =>
+                String(s.siniestro || s.nombre || '').toLowerCase() === valor.toLowerCase()
+            );
+
+            if (siniestroEncontrado) {
+                // SINIESTRO EXISTE → Auto-completar y dejar readonly
+                if (campoFenomeno) {
+                    campoFenomeno.value = siniestroEncontrado.fenomeno || '';
+                    campoFenomeno.setAttribute('readonly', 'true');
+                    campoFenomeno.classList.remove('bg-white');
+                    campoFenomeno.classList.add('bg-light');
+                }
+                if (campoFi) {
+                    campoFi.value = siniestroEncontrado.fi || '';
+                    campoFi.setAttribute('readonly', 'true');
+                    campoFi.classList.remove('bg-white');
+                    campoFi.classList.add('bg-light');
+                }
+                if (campoFondo) {
+                    campoFondo.value = siniestroEncontrado.fondo || '';
+                    campoFondo.setAttribute('readonly', 'true');
+                    campoFondo.classList.remove('bg-white');
+                    campoFondo.classList.add('bg-light');
+                }
+                // Ocultar advertencias
+                if (dom.avisoFenomeno) dom.avisoFenomeno.classList.add('d-none');
+                if (dom.avisoFi) dom.avisoFi.classList.add('d-none');
+                if (dom.avisoFondo) dom.avisoFondo.classList.add('d-none');
+            } else {
+                // SINIESTRO NUEVO → Limpiar, habilitar para edición y mostrar advertencias
+                if (campoFenomeno) {
+                    campoFenomeno.value = '';
+                    campoFenomeno.removeAttribute('readonly');
+                    campoFenomeno.classList.remove('bg-light');
+                    campoFenomeno.classList.add('bg-white');
+                    campoFenomeno.placeholder = 'Ingrese el tipo de fenómeno (ej: Granizo, Helada, Inundación...)';
+                }
+                if (campoFi) {
+                    campoFi.value = '';
+                    campoFi.removeAttribute('readonly');
+                    campoFi.classList.remove('bg-light');
+                    campoFi.classList.add('bg-white');
+                    campoFi.placeholder = 'Ingrese el FI correspondiente al siniestro';
+                }
+                if (campoFondo) {
+                    campoFondo.value = '';
+                    campoFondo.removeAttribute('readonly');
+                    campoFondo.classList.remove('bg-light');
+                    campoFondo.classList.add('bg-white');
+                    campoFondo.placeholder = 'Ingrese el fondo asegurador (ej: FONDEN, CADENA...)';
+                }
+                // Mostrar advertencias
+                if (dom.avisoFenomeno) dom.avisoFenomeno.classList.remove('d-none');
+                if (dom.avisoFi) dom.avisoFi.classList.remove('d-none');
+                if (dom.avisoFondo) dom.avisoFondo.classList.remove('d-none');
+            }
+        }
+
+        function _toggleEdicion(habilitar) {
+            state.isEditing = habilitar;
+            const inputs = document.querySelectorAll('#form-detalle-comunicado input:not([readonly]), #form-detalle-comunicado select, #form-detalle-comunicado textarea');
+            inputs.forEach(input => {
+                // Excepciones: campos que siempre son readonly (fenomeno, fondo, fi se llenan auto)
+                if (['detalle-fenomeno', 'detalle-fondo', 'detalle-fi'].includes(input.id)) return;
+                input.disabled = !habilitar;
+            });
+
+            // Ya no hay botones separados de dropdown, los inputs manejan el dropdown directamente
+
+            if (dom.btnEditar) {
+                if (habilitar) dom.btnEditar.classList.add('d-none');
+                else dom.btnEditar.classList.remove('d-none');
+            }
+
+            if (dom.btnGuardar) {
+                if (habilitar) dom.btnGuardar.classList.remove('d-none');
+                else dom.btnGuardar.classList.add('d-none');
+            }
+        }
+
+        /**
+         * Muestra el estado de carga
+         */
+        function _renderLoading() {
+            if (dom.loader) dom.loader.classList.remove('d-none');
+            if (dom.tableContainer) dom.tableContainer.classList.add('d-none');
+            if (dom.errorAlert) dom.errorAlert.classList.add('d-none');
+            if (dom.emptyState) dom.emptyState.classList.add('d-none');
+        }
+
+        /**
+         * Carga los catálogos
+         */
+        async function _loadCatalogs() {
+            console.log('Iniciando carga de catálogos...');
+            try {
+                const response = await serverCall('getComunicadoCatalogs');
+                console.log('Respuesta cruda de catálogos:', response);
+
+                // serverCall devuelve response.data directamente si success es true.
+                // Por lo tanto, 'response' aquí ES el objeto de datos.
+
+                if (response && response.debugLogs) {
+                    console.log('--- LOGS DEL SERVIDOR (getComunicadoCatalogs) ---');
+                    response.debugLogs.forEach(log => console.log(`SERVER: ${log}`));
+                    console.log('-------------------------------------------------');
+                }
+
+                // Verificamos si tenemos los arrays esperados
+                if (response && (response.estados || response.distritosRiego)) {
+                    state.catalogs = response;
+                    console.log('Catálogos asignados al estado:', state.catalogs);
+                    console.log(`Estados cargados: ${state.catalogs.estados ? state.catalogs.estados.length : 0}`);
+
+                    // Intentar poblar inmediatamente si el DOM está listo
+                    _poblarSelectEstados();
+                    _poblarDatalists();
+                } else {
+                    console.error('Respuesta de catálogos inválida o sin éxito:', response);
+                }
+            } catch (error) {
+                console.error('Error cargando catálogos:', error);
+            }
+        }
+
+        function _poblarSelectEstados() {
+            const select = document.getElementById('detalle-estado');
+            if (!select) {
+                console.warn('Select de estados NO encontrado en el DOM al intentar poblar.');
+                return;
+            }
+
+            if (!state.catalogs.estados || state.catalogs.estados.length === 0) {
+                console.warn('No hay estados en el catálogo para poblar.');
+                console.log('Estado del catálogo:', state.catalogs);
+                return;
+            }
+
+            console.log(`Poblando select de estados con ${state.catalogs.estados.length} opciones.`);
+
+            select.innerHTML = '<option value="">Seleccione un estado...</option>';
+            state.catalogs.estados.forEach(est => {
+                const option = document.createElement('option');
+                const id = est.id !== undefined ? est.id : (est.idEstado || est.ID || est.id_estado || est.clave || est.Clave);
+                const nombre = est.estado || est.nombre || est.Estado || est.entidad || est.Entidad;
+
+                if (id !== null && id !== undefined && String(id).trim() !== '') {
+                    option.value = String(id);
+                    option.textContent = nombre || 'Sin nombre';
+                    select.appendChild(option);
+                } else {
+                    console.warn('Estado sin ID válido omitido:', est);
+                }
+            });
+        }
+
+        function _poblarDatalists() {
+            // Poblar los combobox híbridos
+            _poblarCombobox('distrito', state.catalogs.distritosRiego, 'distritoRiego');
+            _poblarCombobox('siniestro', state.catalogs.siniestros, 'siniestro');
+
+            // Configurar el filtrado en tiempo real
+            _setupComboboxFilter('distrito', state.catalogs.distritosRiego, 'distritoRiego');
+            _setupComboboxFilter('siniestro', state.catalogs.siniestros, 'siniestro');
+        }
+
+        function _poblarCombobox(tipo, catalogo, campoNombre) {
+            const dropdownList = document.getElementById(`dropdown-${tipo}-list`);
+            if (!dropdownList || !catalogo) return;
+
+            dropdownList.innerHTML = '';
+            catalogo.forEach(item => {
+                const valor = String(item[campoNombre] || item.nombre || '');
+                if (!valor) return; // Saltar si está vacío
+
+                const li = document.createElement('li');
+                li.innerHTML = `<a class="dropdown-item" href="#" data-value="${escapeHtml(valor)}">${escapeHtml(valor)}</a>`;
+
+                li.querySelector('a').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const input = document.getElementById(`detalle-${tipo}`);
+                    input.value = valor;
+
+                    // Trigger change para actualizar detalles de siniestro si aplica
+                    if (tipo === 'siniestro') {
+                        _actualizarDetallesSiniestro();
+                    }
+                    _verificarNuevoRegistro(tipo);
+                });
+
+                dropdownList.appendChild(li);
+            });
+        }
+
+        function _setupComboboxFilter(tipo, catalogo, campoNombre) {
+            const input = document.getElementById(`detalle-${tipo}`);
+            const dropdownList = document.getElementById(`dropdown-${tipo}-list`);
+
+            console.log(`🔧 _setupComboboxFilter para ${tipo}:`, { input: !!input, dropdownList: !!dropdownList });
+
+            if (!input || !dropdownList) return;
+
+            // Evitar agregar listeners duplicados
+            if (input.dataset.filterConfigured === 'true') {
+                console.log(`⚠️ Filtro para ${tipo} ya configurado, saltando...`);
+                return;
+            }
+            input.dataset.filterConfigured = 'true';
+            console.log(`✅ Configurando listener para ${tipo}`);
+
+            input.addEventListener('input', () => {
+                console.log(`📝 Input event en ${tipo}: "${input.value}"`);
+
+                const searchTerm = input.value.toLowerCase();
+                const items = dropdownList.querySelectorAll('.dropdown-item');
+                let hasVisibleItems = false;
+
+                items.forEach(item => {
+                    const text = item.textContent.toLowerCase();
+                    if (text.includes(searchTerm)) {
+                        item.parentElement.style.display = '';
+                        hasVisibleItems = true;
+                    } else {
+                        item.parentElement.style.display = 'none';
+                    }
+                });
+
+                // NOTA: Las validaciones se manejan en _cacheDomElements
+            });
+        }
+
+        /**
+         * Carga los comunicados desde el servidor
+         */
+        async function _loadComunicados() {
+            state.loading = true;
+            _renderLoading();
+
+            try {
+                if (state.catalogs.estados.length === 0) {
+                    await _loadCatalogs();
+                }
+
+                const comunicados = await serverCall('readAllComunicados');
+                state.comunicados = comunicados || [];
+                _renderTable();
+            } catch (error) {
+                console.error('Error cargando comunicados:', error);
+                state.error = error.message;
+                _renderError(error.message);
+            } finally {
+                state.loading = false;
+                if (dom.loader) dom.loader.classList.add('d-none');
+            }
+        }
+
+        /**
+         * Renderiza la tabla de comunicados
+         */
+        function _renderTable() {
+            if (!state.comunicados || state.comunicados.length === 0) {
+                if (dom.emptyState) dom.emptyState.classList.remove('d-none');
+                if (dom.totalBadge) dom.totalBadge.textContent = '0';
+                return;
+            }
+
+            if (dom.tableContainer) dom.tableContainer.classList.remove('d-none');
+            if (dom.totalBadge) dom.totalBadge.textContent = state.comunicados.length;
+
+            const html = state.comunicados.map(com => `
+                <tr>
+                    <td class="ps-4 fw-bold text-muted small">#${com.id || ''}</td>
+                    <td><span class="badge bg-light text-dark border">${escapeHtml(com.cuenta || '')}</span></td>
+                    <td class="fw-semibold text-primary">${escapeHtml(com.comunicado || '')}</td>
+                    <td class="text-nowrap small">${escapeHtml(com.fecha || '')}</td>
+                    <td class="small text-truncate" style="max-width: 200px;" title="${escapeHtml(com.descripcion || '')}">
+                        ${escapeHtml(com.descripcion || '')}
+                    </td>
+                    <td class="small">${escapeHtml(com.estado || '')}</td>
+                    <td class="small">${escapeHtml(com.distrito || '')}</td>
+                    <td class="small">${escapeHtml(com.siniestro || '')}</td>
+                    <td class="text-end pe-4">
+                        <button class="btn btn-sm btn-primary" onclick="Comunicados.verDetalle(${com.id || ''})">
+                            <i class="bi bi-eye"></i> Ver
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (dom.tbody) dom.tbody.innerHTML = html;
+            inputs.forEach(input => {
+                // Excepciones: campos que siempre son readonly (fenomeno, fondo, fi se llenan auto)
+                if (['detalle-fenomeno', 'detalle-fondo', 'detalle-fi'].includes(input.id)) return;
+                input.disabled = !habilitar;
+            });
+
+            if (dom.btnEditar) {
+                if (habilitar) dom.btnEditar.classList.add('d-none');
+                else dom.btnEditar.classList.remove('d-none');
+            }
+
+            if (dom.btnGuardar) {
+                if (habilitar) dom.btnGuardar.classList.remove('d-none');
+                else dom.btnGuardar.classList.add('d-none');
+            }
+        }
+
+        /**
+         * Muestra el estado de carga
+         */
+        function _renderLoading() {
+            if (dom.loader) dom.loader.classList.remove('d-none');
+            if (dom.tableContainer) dom.tableContainer.classList.add('d-none');
+            if (dom.errorAlert) dom.errorAlert.classList.add('d-none');
+            if (dom.emptyState) dom.emptyState.classList.add('d-none');
+        }
+
+        /**
+         * Carga los catálogos
+         */
+        async function _loadCatalogs() {
+            console.log('Iniciando carga de catálogos...');
+            try {
+                const response = await serverCall('getComunicadoCatalogs');
+                console.log('Respuesta cruda de catálogos:', response);
+
+                // serverCall devuelve response.data directamente si success es true.
+                // Por lo tanto, 'response' aquí ES el objeto de datos.
+
+                if (response && response.debugLogs) {
+                    console.log('--- LOGS DEL SERVIDOR (getComunicadoCatalogs) ---');
+                    response.debugLogs.forEach(log => console.log(`SERVER: ${log}`));
+                    console.log('-------------------------------------------------');
+                }
+
+                // Verificamos si tenemos los arrays esperados
+                if (response && (response.estados || response.distritosRiego)) {
+                    state.catalogs = response;
+                    console.log('Catálogos asignados al estado:', state.catalogs);
+                    console.log(`Estados cargados: ${state.catalogs.estados ? state.catalogs.estados.length : 0}`);
+
+                    // Intentar poblar inmediatamente si el DOM está listo
+                    _poblarSelectEstados();
+                    _poblarDatalists();
+                } else {
+                    console.error('Respuesta de catálogos inválida o sin éxito:', response);
+                }
+            } catch (error) {
+                console.error('Error cargando catálogos:', error);
+            }
+        }
+
+        function _poblarSelectEstados() {
+            const select = document.getElementById('detalle-estado');
+            if (!select) {
+                console.warn('Select de estados NO encontrado en el DOM al intentar poblar.');
+                return;
+            }
+
+            if (!state.catalogs.estados || state.catalogs.estados.length === 0) {
+                console.warn('No hay estados en el catálogo para poblar.');
+                console.log('Estado del catálogo:', state.catalogs);
+                return;
+            }
+
+            console.log(`Poblando select de estados con ${state.catalogs.estados.length} opciones.`);
+
+            select.innerHTML = '<option value="">Seleccione un estado...</option>';
+            state.catalogs.estados.forEach(est => {
+                const option = document.createElement('option');
+                const id = est.id !== undefined ? est.id : (est.idEstado || est.ID || est.id_estado || est.clave || est.Clave);
+                const nombre = est.estado || est.nombre || est.Estado || est.entidad || est.Entidad;
+
+                if (id !== null && id !== undefined && String(id).trim() !== '') {
+                    option.value = String(id);
+                    option.textContent = nombre || 'Sin nombre';
+                    select.appendChild(option);
+                } else {
+                    console.warn('Estado sin ID válido omitido:', est);
+                }
+            });
+        }
+
+        function _poblarDatalists() {
+            const dlDistritos = document.getElementById('datalist-distritos');
+            const dlSiniestros = document.getElementById('datalist-siniestros');
+
+            if (dlDistritos && state.catalogs.distritosRiego) {
+                dlDistritos.innerHTML = '';
+                state.catalogs.distritosRiego.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.distritoRiego || d.nombre;
+                    dlDistritos.appendChild(opt);
+                });
+            }
+
+            if (dlSiniestros && state.catalogs.siniestros) {
+                dlSiniestros.innerHTML = '';
+                state.catalogs.siniestros.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.siniestro || s.nombre;
+                    dlSiniestros.appendChild(opt);
+                });
+            }
+        }
+
+        /**
+         * Carga los comunicados desde el servidor
+         */
+        async function _loadComunicados() {
+            state.loading = true;
+            _renderLoading();
+
+            try {
+                if (state.catalogs.estados.length === 0) {
+                    await _loadCatalogs();
+                }
+
+                const comunicados = await serverCall('readAllComunicados');
+                state.comunicados = comunicados || [];
+                _renderTable();
+            } catch (error) {
+                console.error('Error cargando comunicados:', error);
+                state.error = error.message;
+                _renderError(error.message);
+            } finally {
+                state.loading = false;
+                if (dom.loader) dom.loader.classList.add('d-none');
+            }
+        }
+
+        /**
+         * Renderiza la tabla de comunicados
+         */
+        function _renderTable() {
+            if (!state.comunicados || state.comunicados.length === 0) {
+                if (dom.emptyState) dom.emptyState.classList.remove('d-none');
+                if (dom.totalBadge) dom.totalBadge.textContent = '0';
+                return;
+            }
+
+            if (dom.tableContainer) dom.tableContainer.classList.remove('d-none');
+            if (dom.totalBadge) dom.totalBadge.textContent = state.comunicados.length;
+
+            const html = state.comunicados.map(com => `
+                <tr>
+                    <td class="ps-4 fw-bold text-muted small">#${com.id || ''}</td>
+                    <td><span class="badge bg-light text-dark border">${escapeHtml(com.cuenta || '')}</span></td>
+                    <td class="fw-semibold text-primary">${escapeHtml(com.comunicado || '')}</td>
+                    <td class="text-nowrap small">${escapeHtml(com.fecha || '')}</td>
+                    <td class="small text-truncate" style="max-width: 200px;" title="${escapeHtml(com.descripcion || '')}">
+                        ${escapeHtml(com.descripcion || '')}
+                    </td>
+                    <td class="small">${escapeHtml(com.estado || '')}</td>
+                    <td class="small">${escapeHtml(com.distrito || '')}</td>
+                    <td class="small">${escapeHtml(com.siniestro || '')}</td>
+                    <td class="text-end pe-4">
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="Comunicados.abrirModal(${com.id || ''})" title="Edición rápida">
+                            <i class="bi bi-eye"></i> Ver
+                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="Comunicados.verDetalle(${com.id || ''})" title="Gestión completa">
+                            <i class="bi bi-gear-fill"></i> Gestión
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (dom.tbody) dom.tbody.innerHTML = html;
+        }
+
+        /**
+         * Abre el modal de edición rápida
+         */
+        async function abrirModal(idComunicado) {
+            if (!idComunicado || !modalInstance) return;
+
+            try {
+                // Mostrar el modal con loader
+                if (dom.modalLoader) dom.modalLoader.classList.remove('d-none');
+                if (dom.modalContent) dom.modalContent.classList.add('d-none');
+                if (dom.modalError) dom.modalError.classList.add('d-none');
+
+                modalInstance.show();
+
+                // Cargar los datos del comunicado
+                const detalle = await serverCall('getComunicadoCompleto', idComunicado);
+
+                if (detalle) {
+                    comunicadoActual = detalle;
+
+                    // Poblar el formulario
+                    document.getElementById('detalle-comunicado').value = detalle.comunicado || '';
+                    document.getElementById('detalle-fecha').value = _formatearFechaInput(detalle.fecha);
+                    document.getElementById('detalle-estado').value = detalle.idEstado || '';
+                    document.getElementById('detalle-descripcion').value = detalle.descripcion || '';
+
+                    // CUENTA - puede venir como objeto o string
+                    const cuentaValor = typeof detalle.cuenta === 'object'
+                        ? (detalle.cuenta?.nombre || detalle.cuenta?.cuenta || detalle.idCuenta || '')
+                        : (detalle.cuenta || detalle.idCuenta || '');
+                    document.getElementById('detalle-cuenta').value = cuentaValor;
+
+                    // DISTRITO - puede venir como objeto o string
+                    const distritoValor = typeof detalle.distrito === 'object'
+                        ? (detalle.distrito?.distritoRiego || detalle.distrito?.nombre || '')
+                        : (detalle.distrito || '');
+                    document.getElementById('detalle-distrito').value = distritoValor;
+
+                    // SINIESTRO - puede venir como objeto o string
+                    const siniestroValor = typeof detalle.siniestro === 'object'
+                        ? (detalle.siniestro?.siniestro || detalle.siniestro?.nombre || '')
+                        : (detalle.siniestro || '');
+                    document.getElementById('detalle-siniestro').value = siniestroValor;
+
+                    // Actualizar detalles del siniestro si existe
+                    if (siniestroValor && state.catalogs.siniestros) {
+                        const siniestroNormalizado = String(siniestroValor).toLowerCase().trim();
+                        const s = state.catalogs.siniestros.find(x => {
+                            const valorX = String(x.siniestro || x.nombre || '').toLowerCase().trim();
+                            return valorX === siniestroNormalizado;
+                        });
+                        if (s) {
+                            document.getElementById('detalle-fenomeno').value = s.fenomeno || '';
+                            document.getElementById('detalle-fondo').value = s.fondo || '';
+                            document.getElementById('detalle-fi').value = s.fi || '';
+                        }
+                    }
+
+                    // Mostrar el contenido
+                    if (dom.modalLoader) dom.modalLoader.classList.add('d-none');
+                    if (dom.modalContent) dom.modalContent.classList.remove('d-none');
+
+                    // Iniciar en modo lectura
+                    _toggleEdicion(false);
+                }
+            } catch (error) {
+                console.error('Error cargando detalle en modal:', error);
+                if (dom.modalLoader) dom.modalLoader.classList.add('d-none');
+                if (dom.modalError) {
+                    dom.modalError.textContent = 'Error al cargar los datos: ' + error.message;
+                    dom.modalError.classList.remove('d-none');
+                }
+            }
+        }
+
+        /**
+         * Muestra un mensaje de error
+         */
+        function _renderError(message) {
+            if (dom.errorAlert) {
+                dom.errorAlert.textContent = message;
+                dom.errorAlert.classList.remove('d-none');
+            }
+        }
+
+        /**
+         * Formatea una fecha para el input date (YYYY-MM-DD)
+         */
+        function _formatearFechaInput(fecha) {
+            if (!fecha) return '';
+            try {
+                if (typeof fecha === 'string') {
+                    if (fecha.includes('/')) {
+                        const partes = fecha.split('/');
+                        if (partes.length === 3) {
+                            const dia = partes[0].padStart(2, '0');
+                            const mes = partes[1].padStart(2, '0');
+                            const anio = partes[2];
+                            return `${anio}-${mes}-${dia}`;
+                        }
+                    }
+                    if (fecha.includes('T')) {
+                        return fecha.split('T')[0];
+                    }
+                    return fecha;
+                }
+                if (fecha instanceof Date) {
+                    return fecha.toISOString().split('T')[0];
+                }
+            } catch (e) {
+                console.error('Error formateando fecha:', fecha, e);
+            }
+            return '';
+        }
+
+        /**
+         * Navega a la vista de detalle del comunicado
+         */
+        async function verDetalle(idComunicado) {
+            if (!idComunicado) return;
+
+            // Guardar ID en sesión para que la nueva vista lo recupere
+            sessionStorage.setItem('currentComunicadoId', String(idComunicado));
+
+            // Navegar a la nueva ruta
+            location.hash = '#/comunicado-detalle';
+        }
+
+        /**
+         * Pobla el formulario del modal con los datos del comunicado
+         * (Mantenido por compatibilidad si se necesitara, aunque ahora navegamos)
+         */
+        function _poblarFormulario(detalle) {
+            // Esta función ya no se usa activamente para el modal principal,
+            // pero se deja como referencia o por si se revierte la navegación.
+            console.log('Poblando formulario (legacy):', detalle);
+        }
+
+        /**
+         * Guarda los cambios del comunicado
+         */
+        async function _guardarCambios() {
+            if (!comunicadoActual) return;
+
+            dom.btnGuardar.disabled = true;
+            dom.btnGuardar.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Guardando...';
+
+            try {
+                const updates = {
+                    comunicado: document.getElementById('detalle-comunicado').value,
+                    fecha: document.getElementById('detalle-fecha').value,
+                    idEstado: document.getElementById('detalle-estado').value,
+                    descripcion: document.getElementById('detalle-descripcion').value,
+                    distrito: document.getElementById('detalle-distrito').value,
+                    siniestro: document.getElementById('detalle-siniestro').value,
+                    fenomeno: document.getElementById('detalle-fenomeno').value,
+                    fi: document.getElementById('detalle-fi').value,
+                    fondo: document.getElementById('detalle-fondo').value
+                };
+
+                console.log('💾 Guardando comunicado con datos:', updates);
+
+                await serverCall('updateComunicado', comunicadoActual.id, updates);
+
+                modalInstance.hide();
+                await _loadComunicados();
+
+                alert('Comunicado actualizado correctamente');
+            } catch (error) {
+                console.error('Error guardando cambios:', error);
+                dom.modalError.textContent = error.message;
+                dom.modalError.classList.remove('d-none');
+            } finally {
+                dom.btnGuardar.disabled = false;
+                dom.btnGuardar.innerHTML = '<i class="bi bi-save"></i> Guardar Cambios';
+            }
+        }
+
+        /**
+         * Función de inicialización principal
+         */
+        const init = async (container) => {
+            try {
+                await _mount(container);
+                _cacheDomElements();
+                await _loadComunicados(); // Esto cargará catálogos también
+                console.log('✅ Componente Comunicados listo');
+            } catch (error) {
+                console.error('❌ FALLO CRÍTICO EN LA CARGA de Comunicados:', error);
+                container.innerHTML = `<div class="alert alert-danger">Error fatal al cargar: ${error.message}</div>`;
+            }
+        };
+
+        const mount = async (container) => init(container);
+
+        // Exportar componente
+        return {
+            init,
+            mount,
+            abrirModal,
+            verDetalle
+        };
+
+    })();
+</script>

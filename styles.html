@@ -1,0 +1,190 @@
+<style>
+    /* ====================================================================
+       SISTEMA DE TRANSICIONES PROFESIONAL
+       - Timing consistente en toda la app
+       - Movimientos sutiles y elegantes
+       - Sin efectos bruscos o "rotos"
+       ==================================================================== */
+
+    /* Variables de timing consistentes */
+    :root {
+        --transition-fast: 150ms;
+        --transition-base: 250ms;
+        --transition-slow: 350ms;
+        --easing-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+        --easing-entrance: cubic-bezier(0, 0, 0.2, 1);
+        --easing-exit: cubic-bezier(0.4, 0, 1, 1);
+    }
+
+    /* Layout básico */
+    html,
+    body {
+        height: 100%;
+        margin: 0;
+        background-color: #f8f9fa;
+    }
+
+    body {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .header {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        padding: 0 1.5rem;
+        flex-shrink: 0;
+        background: linear-gradient(90deg, #1e293b 0%, #334155 100%);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+
+    .main-container {
+        display: flex;
+        flex-grow: 1;
+        overflow: hidden;
+    }
+
+    /* ====================================================================
+       SIDEBAR - Estilos movidos a sidebar.html para mayor control
+       ==================================================================== */
+
+    /* ====================================================================
+       CONTENIDO PRINCIPAL - Fade suave y profesional
+       ==================================================================== */
+    #content {
+        flex-grow: 1;
+        overflow-y: auto;
+        background-color: #f8f9fa;
+    }
+
+    /* Transición fade para el contenido de la app */
+    #app {
+        animation: fadeIn var(--transition-slow) var(--easing-entrance);
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    /* ====================================================================
+       LOADER - Transición profesional
+       ==================================================================== */
+    #app-loader {
+        transition: opacity var(--transition-base) var(--easing-exit);
+    }
+
+    #app-loader.d-none {
+        opacity: 0;
+    }
+
+    /* ====================================================================
+       ELEMENTOS INTERACTIVOS - Consistencia en toda la app
+       ==================================================================== */
+
+    /* Cards y elementos con hover */
+    .account-item,
+    .comunicado-item,
+    .card {
+        transition:
+            border-color var(--transition-base) var(--easing-smooth),
+            box-shadow var(--transition-base) var(--easing-smooth),
+            transform var(--transition-fast) var(--easing-smooth);
+    }
+
+    .account-item:hover,
+    .comunicado-item:hover {
+        border-color: var(--bs-primary);
+        box-shadow: 0 0.25rem 1rem rgba(13, 110, 253, 0.1);
+        transform: translateY(-1px);
+    }
+
+    /* Botones - transición suave */
+    .btn {
+        transition:
+            background-color var(--transition-fast) var(--easing-smooth),
+            border-color var(--transition-fast) var(--easing-smooth),
+            color var(--transition-fast) var(--easing-smooth),
+            box-shadow var(--transition-fast) var(--easing-smooth);
+    }
+
+    /* Links y elementos interactivos generales */
+    a,
+    button,
+    input,
+    select,
+    textarea {
+        transition:
+            border-color var(--transition-fast) var(--easing-smooth),
+            box-shadow var(--transition-fast) var(--easing-smooth),
+            background-color var(--transition-fast) var(--easing-smooth);
+    }
+
+    /* ====================================================================
+       MODALES - Transiciones de Bootstrap optimizadas
+       ==================================================================== */
+    .modal.fade .modal-dialog {
+        transition: transform var(--transition-base) var(--easing-smooth);
+    }
+
+    /* ====================================================================
+       TABLAS - Hover sutil y profesional
+       ==================================================================== */
+    .table>tbody>tr {
+        transition: background-color var(--transition-fast) var(--easing-smooth);
+    }
+
+    /* ====================================================================
+       COMBOBOX PERSONALIZADO
+       ==================================================================== */
+    .combobox-input {
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right 0.75rem center;
+        background-size: 16px 12px;
+        padding-right: 2.5rem;
+    }
+
+    .combobox-dropdown .dropdown-menu {
+        z-index: 1060;
+        max-height: 220px;
+        overflow-y: auto;
+    }
+
+    /* ====================================================================
+       SCROLL SUAVE EN TODA LA APLICACIÓN
+       ==================================================================== */
+    * {
+        scroll-behavior: smooth;
+    }
+
+    /* Scrollbar personalizada (solo webkit) */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+        transition: background var(--transition-fast) var(--easing-smooth);
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+</style>

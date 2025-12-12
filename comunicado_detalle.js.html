@@ -1,0 +1,918 @@
+<script>
+    /**
+     * Componente ComunicadoDetalle
+     * Vista detallada y completa para la gestión de un comunicado individual.
+     * VERSIÓN: 2024-12-09 v2 - Bitácora de Presupuesto
+     */
+    console.log('📦 ComunicadoDetalle.js cargado - Versión 2024-12-09 v2');
+    globalThis.ComunicadoDetalle = (() => {
+        'use strict';
+
+        // Estado local
+        let state = {
+            id: null,
+            data: null,
+            catalogs: {},
+            loading: false,
+            saving: false
+        };
+
+        // Referencias DOM
+        let dom = {};
+
+        /**
+         * Inicializa el componente
+         */
+        async function init(container) {
+            console.log('Iniciando ComunicadoDetalle...');
+
+            // 0. Mostrar loader INMEDIATAMENTE
+            const loader = document.getElementById('app-loader');
+            if (loader) {
+                const loaderTitle = document.getElementById('app-loader-title');
+                const loaderMessage = document.getElementById('app-loader-message');
+                if (loaderTitle) loaderTitle.textContent = 'Cargando Comunicado';
+                if (loaderMessage) loaderMessage.textContent = 'Preparando vista...';
+                loader.classList.remove('d-none');
+                console.log('🔄 Loader mostrado INMEDIATAMENTE');
+            }
+
+            // 1. Verificar ID en sessionStorage
+            const storedId = sessionStorage.getItem('currentComunicadoId');
+            if (!storedId) {
+                console.warn('No se encontró ID de comunicado. Redirigiendo al listado.');
+                location.hash = '#/comunicados';
+                return;
+            }
+            state.id = storedId;
+
+            // 2. Cargar Template
+            await _mount(container);
+
+            // 3. Cachear DOM y Bindear Eventos
+            _cacheDom();
+            _bindEvents();
+
+            // 3.5. Actualizar mensaje del loader
+            const loaderMessage = document.getElementById('app-loader-message');
+            if (loaderMessage) loaderMessage.textContent = 'Obteniendo información detallada...';
+
+            // 4. Cargar Datos
+            await _loadData();
+        }
+
+        const mount = async (container) => init(container);
+
+        /**
+         * Carga el HTML
+         */
+        async function _mount(container) {
+            try {
+                // Limpiar contenedor completamente
+                container.innerHTML = '';
+                console.log('🧹 Contenedor limpiado');
+
+                // Intentar usar template cacheado globalmente primero
+                let templateContent = null;
+                if (globalThis.TEMPLATES && globalThis.TEMPLATES['comunicado_detalle']) {
+                    templateContent = globalThis.TEMPLATES['comunicado_detalle'];
+                } else {
+                    // Fallback: pedirlo al servidor
+                    console.warn('Template no encontrado en caché, solicitando al servidor...');
+                    const html = await serverCall('getTemplates', ['comunicado_detalle']);
+                    if (html && html.comunicado_detalle) {
+                        templateContent = html.comunicado_detalle;
+                    }
+                }
+
+                if (templateContent) {
+                    container.innerHTML = templateContent;
+                    console.log('✅ Template montado');
+                } else {
+                    throw new Error('No se pudo cargar la plantilla comunicado_detalle');
+                }
+            } catch (error) {
+                console.error('Error montando template:', error);
+                container.innerHTML = `<div class="alert alert-danger">Error cargando la vista: ${error.message}</div>`;
+                throw error;
+            }
+        }
+
+        function _cacheDom() {
+            dom.headerTitle = document.getElementById('header-titulo');
+            dom.headerSubtitle = document.getElementById('header-subtitulo');
+            dom.headerStatus = document.getElementById('header-status');
+            dom.btnVolver = document.getElementById('btn-volver-listado');
+            dom.btnGuardar = document.getElementById('btn-guardar-todo');
+
+            // Inputs Generales
+            dom.genId = document.getElementById('gen-id');
+            dom.genCuenta = document.getElementById('gen-cuenta');
+            dom.genFecha = document.getElementById('gen-fecha');
+            dom.genComunicado = document.getElementById('gen-comunicado');
+            dom.genDescripcion = document.getElementById('gen-descripcion');
+            dom.genEstado = document.getElementById('gen-estado');
+            dom.genDistrito = document.getElementById('gen-distrito');
+            dom.genSiniestro = document.getElementById('gen-siniestro');
+
+            dom.genFenomeno = document.getElementById('gen-fenomeno');
+            dom.genFondo = document.getElementById('gen-fondo');
+            dom.genFi = document.getElementById('gen-fi');
+
+            // Comboboxes (Listas y Avisos)
+            dom.dropdownSiniestro = document.getElementById('dropdown-gen-siniestro-list');
+            dom.avisoSiniestro = document.getElementById('aviso-gen-siniestro');
+            dom.datalistSiniestros = null; // Deprecado
+
+            dom.dropdownDistrito = document.getElementById('dropdown-gen-distrito-list');
+            dom.avisoDistrito = document.getElementById('aviso-gen-distrito');
+            dom.datalistDistritos = null; // Deprecado
+
+            // Avisos Fenómeno/FI/Fondo
+            dom.avisoFenomeno = document.getElementById('aviso-gen-fenomeno');
+            dom.avisoFi = document.getElementById('aviso-gen-fi');
+            dom.avisoFondo = document.getElementById('aviso-gen-fondo');
+
+            // Presupuesto
+            dom.presupuestoBody = document.getElementById('tabla-presupuesto-body');
+            dom.totalAutorizado = document.getElementById('presupuesto-total-autorizado');
+            dom.totalCapturado = document.getElementById('presupuesto-total-capturado');
+            dom.btnAddActualizacion = document.getElementById('btn-add-actualizacion');
+
+            // Equipo
+            dom.btnAddContratista = document.getElementById('btn-add-contratista');
+            dom.btnAddSupervisor = document.getElementById('btn-add-supervisor');
+            dom.listaContratistas = document.getElementById('lista-contratistas');
+            dom.listaSupervisores = document.getElementById('lista-supervisores');
+
+            // Financiero
+            dom.btnAddEstimacion = document.getElementById('btn-add-estimacion');
+            dom.btnAddFactura = document.getElementById('btn-add-factura');
+            dom.listaEstimaciones = document.getElementById('lista-estimaciones');
+            dom.listaFacturas = document.getElementById('lista-facturas');
+            dom.finAutorizado = document.getElementById('fin-autorizado');
+            dom.finEjercido = document.getElementById('fin-ejercido');
+            dom.finPorEjercer = document.getElementById('fin-por-ejercer');
+
+            // Tickets
+            dom.btnAddTicket = document.getElementById('btn-add-ticket');
+            dom.listaTickets = document.getElementById('lista-tickets');
+
+            // Actualizaciones
+            dom.listaActualizaciones = document.getElementById('lista-actualizaciones');
+        }
+
+        function _bindEvents() {
+            if (dom.btnVolver) {
+                dom.btnVolver.addEventListener('click', () => {
+                    location.hash = '#/comunicados';
+                });
+            }
+
+            if (dom.btnGuardar) {
+                dom.btnGuardar.addEventListener('click', _guardarTodo);
+            }
+
+            // Nota: Los eventos de Siniestro y Distrito ahora se manejan en _setupCombobox dentro de _poblarCatalogos
+
+            // Presupuesto
+            if (dom.btnAddActualizacion) dom.btnAddActualizacion.addEventListener('click', _addActualizacionPresupuesto);
+
+            // Equipo
+            if (dom.btnAddContratista) dom.btnAddContratista.addEventListener('click', () => _addEquipo('contratista'));
+            if (dom.btnAddSupervisor) dom.btnAddSupervisor.addEventListener('click', () => _addEquipo('supervisor'));
+
+            // Financiero
+            if (dom.btnAddEstimacion) dom.btnAddEstimacion.addEventListener('click', () => _addFinanciero('estimacion'));
+            if (dom.btnAddFactura) dom.btnAddFactura.addEventListener('click', () => _addFinanciero('factura'));
+
+            // Tickets
+            if (dom.btnAddTicket) dom.btnAddTicket.addEventListener('click', _addTicket);
+        }
+
+        /**
+         * Carga datos del servidor (Comunicado + Catálogos)
+         */
+        async function _loadData() {
+            // Nota: _setLoading(true) se llama en init() antes de llamar a _loadData
+            console.log('📥 Cargando datos del comunicado...');
+            try {
+                // Cargar catálogos primero si no existen
+                const catalogsResponse = await serverCall('getComunicadoCatalogs');
+                if (catalogsResponse) {
+                    state.catalogs = catalogsResponse;
+                    _poblarCatalogos();
+                }
+
+                // Cargar detalle del comunicado
+                const detalleResponse = await serverCall('getComunicadoCompleto', state.id);
+                if (detalleResponse) {
+                    state.data = detalleResponse;
+
+                    // Asegurar estructuras de datos
+                    if (!state.data.presupuesto) state.data.presupuesto = [];
+                    if (!state.data.equipo) state.data.equipo = [];
+
+                    if (!state.data.financiero) state.data.financiero = {};
+                    if (!state.data.financiero.estimaciones) state.data.financiero.estimaciones = [];
+                    if (!state.data.financiero.facturas) state.data.financiero.facturas = [];
+
+                    if (!state.data.tickets) state.data.tickets = [];
+
+                    _renderData();
+                }
+
+            } catch (error) {
+                console.error('Error cargando datos:', error);
+                alert('Error al cargar los datos del comunicado: ' + error.message);
+            } finally {
+                _setLoading(false);
+            }
+        }
+
+        function _setLoading(isLoading) {
+            state.loading = isLoading;
+
+            const loader = document.getElementById('app-loader');
+            const loaderTitle = document.getElementById('app-loader-title');
+            const loaderMessage = document.getElementById('app-loader-message');
+            const content = document.getElementById('detalle-content');
+
+            console.log(`🔄 _setLoading(${isLoading})`, {
+                loaderExists: !!loader,
+                contentExists: !!content,
+                contentClasses: content?.className
+            });
+
+            if (loader) {
+                if (isLoading) {
+                    // Mostrar loader
+                    if (loaderTitle) loaderTitle.textContent = 'Cargando Comunicado';
+                    if (loaderMessage) loaderMessage.textContent = 'Obteniendo información detallada...';
+                    loader.classList.remove('d-none');
+
+                    // Ocultar contenido completamente
+                    if (content) {
+                        content.classList.add('d-none');
+                        console.log('  → Contenido OCULTO, clases:', content.className);
+                    }
+
+                    console.log('  → Spinner VISIBLE');
+                } else {
+                    // Ocultar loader
+                    loader.classList.add('d-none');
+
+                    // Mostrar contenido
+                    if (content) {
+                        content.classList.remove('d-none');
+                        content.classList.add('d-flex', 'flex-column', 'h-100');
+                        console.log('  → Contenido VISIBLE, clases:', content.className);
+                    }
+
+                    console.log('  → Spinner OCULTO');
+                }
+            }
+
+            if (dom.headerTitle) {
+                dom.headerTitle.textContent = isLoading ? 'Cargando...' : (state.data?.comunicado || 'Nuevo Comunicado');
+            }
+        }
+
+        function _poblarCatalogos() {
+            // Estados
+            if (dom.genEstado && state.catalogs.estados) {
+                dom.genEstado.innerHTML = '<option value="">Seleccione...</option>';
+                state.catalogs.estados.forEach(est => {
+                    const opt = document.createElement('option');
+                    const id = est.id || est.idEstado;
+                    opt.value = id;
+                    opt.textContent = est.estado || est.nombre;
+                    dom.genEstado.appendChild(opt);
+                });
+            }
+
+            // Configurar Combobox Siniestros
+            if (state.catalogs.siniestros) {
+                _setupCombobox(
+                    dom.genSiniestro,
+                    dom.dropdownSiniestro,
+                    state.catalogs.siniestros,
+                    (item) => {
+                        // Callback al seleccionar
+                        dom.genSiniestro.value = item.siniestro || item.nombre;
+                        _actualizarDetallesSiniestro();
+                    }
+                );
+            }
+
+            // Configurar Combobox Distritos
+            if (state.catalogs.distritosRiego) {
+                _setupCombobox(
+                    dom.genDistrito,
+                    dom.dropdownDistrito,
+                    state.catalogs.distritosRiego,
+                    (item) => {
+                        dom.genDistrito.value = item.distritoRiego || item.nombre;
+                        _verificarNuevoRegistro('distrito');
+                    }
+                );
+            }
+        }
+
+        /**
+         * Configura un combobox híbrido (input + dropdown)
+         */
+        function _setupCombobox(input, dropdownList, items, onSelectCallback) {
+            if (!input || !dropdownList) return;
+
+            const poblarLista = (filtro = '') => {
+                dropdownList.innerHTML = '';
+                const filtroLower = String(filtro).toLowerCase();
+
+                const filtrados = items.filter(item => {
+                    const val = String(item.siniestro || item.distritoRiego || item.nombre || '').toLowerCase();
+                    return val.includes(filtroLower);
+                });
+
+                if (filtrados.length === 0) {
+                    const li = document.createElement('li');
+                    li.className = 'dropdown-item text-muted disabled';
+                    li.textContent = 'No hay coincidencias';
+                    dropdownList.appendChild(li);
+                } else {
+                    filtrados.forEach(item => {
+                        const valor = String(item.siniestro || item.distritoRiego || item.nombre || '');
+                        const li = document.createElement('li');
+                        const a = document.createElement('a');
+                        a.className = 'dropdown-item';
+                        a.href = '#';
+                        a.textContent = valor;
+                        a.onclick = (e) => {
+                            e.preventDefault();
+                            if (onSelectCallback) onSelectCallback(item);
+                        };
+                        li.appendChild(a);
+                        dropdownList.appendChild(li);
+                    });
+                }
+            };
+
+            // Eventos del Input
+            input.addEventListener('input', () => {
+                const valor = input.value;
+                poblarLista(valor);
+
+                // Mostrar dropdown si hay texto
+                if (valor.length > 0) {
+                    const dropdown = new bootstrap.Dropdown(input);
+                    dropdown.show();
+                }
+
+                // Validaciones específicas
+                if (input === dom.genSiniestro) _actualizarDetallesSiniestro();
+                if (input === dom.genDistrito) _verificarNuevoRegistro('distrito');
+            });
+
+            input.addEventListener('focus', () => {
+                poblarLista(input.value);
+            });
+
+            // Cerrar dropdown al hacer click fuera manejado por Bootstrap
+        }
+
+        function _verificarNuevoRegistro(tipo) {
+            let input, aviso, valoresUnicos;
+
+            if (tipo === 'distrito') {
+                input = dom.genDistrito;
+                aviso = dom.avisoDistrito;
+                valoresUnicos = (state.catalogs.distritosRiego || []).map(d => String(d.distritoRiego || d.nombre || '').toLowerCase().trim());
+            } else if (tipo === 'siniestro') {
+                input = dom.genSiniestro;
+                aviso = dom.avisoSiniestro;
+                valoresUnicos = (state.catalogs.siniestros || []).map(s => String(s.siniestro || s.nombre || '').toLowerCase().trim());
+            }
+
+            if (!input || !aviso) return;
+
+            const valor = input.value.trim();
+            if (!valor) {
+                aviso.classList.add('d-none');
+                return;
+            }
+
+            const existe = valoresUnicos.includes(valor.toLowerCase());
+            if (!existe) {
+                aviso.classList.remove('d-none');
+            } else {
+                aviso.classList.add('d-none');
+            }
+        }
+
+        function _formatDateForInput(dateVal) {
+            if (!dateVal) return '';
+            const d = new Date(dateVal);
+            if (isNaN(d.getTime())) return '';
+            return d.toISOString().split('T')[0];
+        }
+
+        function _renderData() {
+            const d = state.data;
+            if (!d) return;
+
+            // Header
+            dom.headerTitle.textContent = d.comunicado || 'Sin Título';
+            dom.headerSubtitle.textContent = `ID: ${d.id} | Cuenta: ${d.cuenta || d.idCuenta}`;
+
+            // Form General
+            dom.genId.value = d.id || '';
+
+            // CUENTA - puede venir como objeto o string
+            const cuentaValor = typeof d.cuenta === 'object'
+                ? (d.cuenta?.nombre || d.cuenta?.cuenta || d.idCuenta || '')
+                : (d.cuenta || d.idCuenta || '');
+            dom.genCuenta.value = cuentaValor;
+
+            dom.genFecha.value = _formatDateForInput(d.fecha);
+            dom.genComunicado.value = d.comunicado || '';
+            dom.genDescripcion.value = d.descripcion || '';
+
+            // Selects y Datalists
+            if (d.idEstado) dom.genEstado.value = d.idEstado;
+
+            // DISTRITO - puede venir como objeto o string
+            const distritoValor = typeof d.distrito === 'object'
+                ? (d.distrito?.distritoRiego || d.distrito?.nombre || '')
+                : (d.distrito || '');
+            if (distritoValor) dom.genDistrito.value = distritoValor;
+
+            // SINIESTRO - puede venir como objeto o string
+            const siniestroValor = typeof d.siniestro === 'object'
+                ? (d.siniestro?.siniestro || d.siniestro?.nombre || '')
+                : (d.siniestro || '');
+            if (siniestroValor) {
+                dom.genSiniestro.value = siniestroValor;
+                _actualizarDetallesSiniestro();
+            }
+
+            // Renderizar otras pestañas
+            _renderPresupuesto();
+            _renderEquipo();
+            _renderFinanciero();
+            _renderTickets();
+            _renderActualizaciones();
+        }
+
+        function _actualizarDetallesSiniestro() {
+            if (!dom.genSiniestro) return;
+            const valor = String(dom.genSiniestro.value).trim();
+            _verificarNuevoRegistro('siniestro');
+
+            // Campos dependientes
+            const campoFenomeno = dom.genFenomeno;
+            const campoFi = dom.genFi;
+            const campoFondo = dom.genFondo;
+
+            if (!valor) {
+                if (campoFenomeno) { campoFenomeno.value = ''; campoFenomeno.readOnly = true; }
+                if (campoFi) { campoFi.value = ''; campoFi.readOnly = true; }
+                if (campoFondo) { campoFondo.value = ''; campoFondo.readOnly = true; }
+
+                // Ocultar avisos
+                if (dom.avisoFenomeno) dom.avisoFenomeno.classList.add('d-none');
+                if (dom.avisoFi) dom.avisoFi.classList.add('d-none');
+                if (dom.avisoFondo) dom.avisoFondo.classList.add('d-none');
+                return;
+            }
+
+            const siniestroEncontrado = (state.catalogs.siniestros || []).find(s =>
+                String(s.siniestro || s.nombre || '').toLowerCase() === valor.toLowerCase()
+            );
+
+            if (siniestroEncontrado) {
+                // Autocompletar y bloquear
+                if (campoFenomeno) {
+                    campoFenomeno.value = siniestroEncontrado.fenomeno || '';
+                    campoFenomeno.readOnly = true;
+                    campoFenomeno.classList.add('bg-light');
+                }
+                if (campoFi) {
+                    campoFi.value = siniestroEncontrado.fi || '';
+                    campoFi.readOnly = true;
+                    campoFi.classList.add('bg-light');
+                }
+                if (campoFondo) {
+                    campoFondo.value = siniestroEncontrado.fondo || '';
+                    campoFondo.readOnly = true;
+                    campoFondo.classList.add('bg-light');
+                }
+
+                // Ocultar todos los avisos
+                if (dom.avisoFenomeno) dom.avisoFenomeno.classList.add('d-none');
+                if (dom.avisoFi) dom.avisoFi.classList.add('d-none');
+                if (dom.avisoFondo) dom.avisoFondo.classList.add('d-none');
+
+            } else {
+                // Nuevo siniestro: Habilitar campos
+                if (campoFenomeno) {
+                    campoFenomeno.value = '';
+                    campoFenomeno.readOnly = false;
+                    campoFenomeno.classList.remove('bg-light');
+                    campoFenomeno.placeholder = "Ingrese Fenómeno...";
+                    if (dom.avisoFenomeno) dom.avisoFenomeno.classList.remove('d-none');
+                }
+                if (campoFi) {
+                    campoFi.value = '';
+                    campoFi.readOnly = false;
+                    campoFi.classList.remove('bg-light');
+                    campoFi.placeholder = "Ingrese F.I....";
+                    if (dom.avisoFi) dom.avisoFi.classList.remove('d-none');
+                }
+                if (campoFondo) {
+                    campoFondo.value = '';
+                    campoFondo.readOnly = false;
+                    campoFondo.classList.remove('bg-light');
+                    campoFondo.placeholder = "Ingrese Fondo...";
+                    if (dom.avisoFondo) dom.avisoFondo.classList.remove('d-none');
+                }
+            }
+        }
+
+        // --- PRESUPUESTO (Actualizaciones) ---
+        function _renderPresupuesto() {
+            const tbody = dom.presupuestoBody;
+            console.log('Rendering Presupuesto. Body:', tbody, 'Data:', state.data.presupuesto);
+
+            if (!tbody) {
+                console.error('Body de presupuesto no encontrado');
+                return;
+            }
+            tbody.innerHTML = '';
+
+            const items = state.data.presupuesto || [];
+
+            if (items.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="text-center py-5 text-muted">
+                            <i class="bi bi-journal-plus fs-1 d-block mb-2"></i>
+                            Sin presupuesto registrado. Haga clic en Agregar para iniciar (Origen).
+                        </td>
+                    </tr>`;
+                if (dom.totalAutorizado) dom.totalAutorizado.textContent = '$0.00';
+                return;
+            }
+
+            // Encontrar la última actualización para resaltar el "Vigente"
+            const lastIndex = items.length - 1;
+
+            items.forEach((item, index) => {
+                if (!item) return; // Proteger contra items nulos
+                const tr = document.createElement('tr');
+
+                const isVigente = index === lastIndex;
+                const isOrigen = index === 0; // El primer registro siempre es "Origen"
+                const rowClass = isVigente ? 'table-active' : '';
+
+                // Columna Revisión: Fija para Origen, editable para actualizaciones
+                let revisionCell;
+                if (isOrigen) {
+                    revisionCell = `<td class="ps-4 ${rowClass}"><span class="badge bg-secondary">Origen</span></td>`;
+                } else {
+                    revisionCell = `
+                        <td class="ps-4 ${rowClass}">
+                            <input type="text" class="form-control form-control-sm text-center" 
+                                value="${item.revision || ''}" 
+                                placeholder="Ej: A, B, Rev-1..."
+                                maxlength="10"
+                                onchange="ComunicadoDetalle.updatePresupuesto(${index}, 'revision', this.value)">
+                        </td>`;
+                }
+
+                tr.innerHTML = `
+                    ${revisionCell}
+                    <td>
+                        <input type="date" class="form-control form-control-sm" 
+                            value="${_formatDateForInput(item.fecha)}"
+                            onchange="ComunicadoDetalle.updatePresupuesto(${index}, 'fecha', this.value)">
+                    </td>
+                    <td>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">$</span>
+                            <input type="number" class="form-control text-end" 
+                                value="${item.monto || 0}" step="0.01"
+                                onchange="ComunicadoDetalle.updatePresupuesto(${index}, 'monto', this.value)">
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        <button class="btn btn-outline-danger btn-sm border-0" 
+                            onclick="ComunicadoDetalle.removePresupuesto(${index})" title="Eliminar">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            _updateTotalPresupuesto();
+        }
+
+        function _addActualizacionPresupuesto() {
+            if (!state.data.presupuesto) state.data.presupuesto = [];
+            const items = state.data.presupuesto;
+
+            // El primer registro siempre es "Origen", los siguientes tienen revisión vacía para captura manual
+            const esOrigen = items.length === 0;
+
+            state.data.presupuesto.push({
+                revision: esOrigen ? 'Origen' : '', // Origen fijo, los demás se capturan manualmente
+                fecha: new Date().toISOString(),
+                monto: 0,
+                esOrigen: esOrigen
+            });
+            _renderPresupuesto();
+        }
+
+        function _updateTotalPresupuesto() {
+            // Mostrar el monto de la ÚLTIMA actualización (Vigente)
+            const items = state.data.presupuesto || [];
+            let totalAut = 0;
+
+            if (items.length > 0) {
+                const vigente = items[items.length - 1];
+                if (vigente) {
+                    totalAut = parseFloat(vigente.monto) || 0;
+                }
+            }
+
+            if (dom.totalAutorizado) {
+                dom.totalAutorizado.textContent = `$${totalAut.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+            }
+        }
+
+        // --- EQUIPO ---
+        function _renderEquipo() {
+            if (!dom.listaContratistas || !dom.listaSupervisores) return;
+            dom.listaContratistas.innerHTML = '';
+            dom.listaSupervisores.innerHTML = '';
+
+            const equipo = state.data.equipo || [];
+
+            // Contratistas
+            const contratistas = equipo.filter(e => e.tipo === 'contratista');
+            if (contratistas.length === 0) {
+                dom.listaContratistas.innerHTML = '<div class="text-center py-4 text-muted"><small>No hay contratistas asignados</small></div>';
+            } else {
+                contratistas.forEach((item, idx) => {
+                    const realIndex = equipo.indexOf(item);
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    div.innerHTML = `
+                        <div class="flex-grow-1 me-3">
+                            <input type="text" class="form-control form-control-sm border-0 fw-bold" placeholder="Nombre del Contratista" value="${item.nombre || ''}" onchange="ComunicadoDetalle.updateEquipo(${realIndex}, 'nombre', this.value)">
+                            <input type="text" class="form-control form-control-sm border-0 text-muted small" placeholder="Detalles / Cargo" value="${item.detalles || ''}" onchange="ComunicadoDetalle.updateEquipo(${realIndex}, 'detalles', this.value)">
+                        </div>
+                        <button class="btn btn-link text-danger btn-sm" onclick="ComunicadoDetalle.removeEquipo(${realIndex})"><i class="bi bi-x-lg"></i></button>
+                    `;
+                    dom.listaContratistas.appendChild(div);
+                });
+            }
+
+            // Supervisores
+            const supervisores = equipo.filter(e => e.tipo === 'supervisor');
+            if (supervisores.length === 0) {
+                dom.listaSupervisores.innerHTML = '<div class="text-center py-4 text-muted"><small>No hay supervisores asignados</small></div>';
+            } else {
+                supervisores.forEach((item, idx) => {
+                    const realIndex = equipo.indexOf(item);
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    div.innerHTML = `
+                        <div class="flex-grow-1 me-3">
+                            <input type="text" class="form-control form-control-sm border-0 fw-bold" placeholder="Nombre del Supervisor" value="${item.nombre || ''}" onchange="ComunicadoDetalle.updateEquipo(${realIndex}, 'nombre', this.value)">
+                            <input type="text" class="form-control form-control-sm border-0 text-muted small" placeholder="Cargo / Área" value="${item.detalles || ''}" onchange="ComunicadoDetalle.updateEquipo(${realIndex}, 'detalles', this.value)">
+                        </div>
+                        <button class="btn btn-link text-danger btn-sm" onclick="ComunicadoDetalle.removeEquipo(${realIndex})"><i class="bi bi-x-lg"></i></button>
+                    `;
+                    dom.listaSupervisores.appendChild(div);
+                });
+            }
+        }
+
+        function _addEquipo(tipo) {
+            state.data.equipo.push({ tipo: tipo, nombre: '', detalles: '' });
+            _renderEquipo();
+        }
+
+        // --- FINANCIERO ---
+        function _renderFinanciero() {
+            if (!dom.listaEstimaciones || !dom.listaFacturas) return;
+            dom.listaEstimaciones.innerHTML = '';
+            dom.listaFacturas.innerHTML = '';
+
+            const fin = state.data.financiero;
+
+            // Estimaciones
+            if (fin.estimaciones.length === 0) {
+                dom.listaEstimaciones.innerHTML = '<div class="text-center py-4 text-muted"><small>No hay estimaciones registradas</small></div>';
+            } else {
+                fin.estimaciones.forEach((item, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item';
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <input type="text" class="form-control form-control-sm border-0 fw-bold w-50" placeholder="No. Estimación" value="${item.numero || ''}" onchange="ComunicadoDetalle.updateFinanciero('estimaciones', ${index}, 'numero', this.value)">
+                            <div class="input-group input-group-sm w-25">
+                                <span class="input-group-text border-0 bg-transparent">$</span>
+                                <input type="number" class="form-control border-0 text-end fw-bold text-primary" placeholder="0.00" value="${item.monto || ''}" onchange="ComunicadoDetalle.updateFinanciero('estimaciones', ${index}, 'monto', this.value)">
+                            </div>
+                            <button class="btn btn-link text-danger btn-sm" onclick="ComunicadoDetalle.removeFinanciero('estimaciones', ${index})"><i class="bi bi-trash"></i></button>
+                        </div>
+                        <input type="date" class="form-control form-control-sm border-0 text-muted small w-50" value="${_formatDateForInput(item.fecha)}" onchange="ComunicadoDetalle.updateFinanciero('estimaciones', ${index}, 'fecha', this.value)">
+                    `;
+                    dom.listaEstimaciones.appendChild(div);
+                });
+            }
+
+            // Facturas
+            if (fin.facturas.length === 0) {
+                dom.listaFacturas.innerHTML = '<div class="text-center py-4 text-muted"><small>No hay facturas registradas</small></div>';
+            } else {
+                fin.facturas.forEach((item, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item';
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <input type="text" class="form-control form-control-sm border-0 fw-bold w-50" placeholder="Folio Factura" value="${item.folio || ''}" onchange="ComunicadoDetalle.updateFinanciero('facturas', ${index}, 'folio', this.value)">
+                            <div class="input-group input-group-sm w-25">
+                                <span class="input-group-text border-0 bg-transparent">$</span>
+                                <input type="number" class="form-control border-0 text-end fw-bold text-success" placeholder="0.00" value="${item.monto || ''}" onchange="ComunicadoDetalle.updateFinanciero('facturas', ${index}, 'monto', this.value)">
+                            </div>
+                            <button class="btn btn-link text-danger btn-sm" onclick="ComunicadoDetalle.removeFinanciero('facturas', ${index})"><i class="bi bi-trash"></i></button>
+                        </div>
+                        <input type="date" class="form-control form-control-sm border-0 text-muted small w-50" value="${_formatDateForInput(item.fecha)}" onchange="ComunicadoDetalle.updateFinanciero('facturas', ${index}, 'fecha', this.value)">
+                    `;
+                    dom.listaFacturas.appendChild(div);
+                });
+            }
+
+            _updateResumenFinanciero();
+        }
+
+        function _addFinanciero(tipo) {
+            if (tipo === 'estimacion') {
+                state.data.financiero.estimaciones.push({ numero: '', monto: 0, fecha: '' });
+            } else {
+                state.data.financiero.facturas.push({ folio: '', monto: 0, fecha: '' });
+            }
+            _renderFinanciero();
+        }
+
+        function _updateResumenFinanciero() {
+            if (!dom.finAutorizado) return;
+
+            const totalPresupuesto = (state.data.presupuesto || []).reduce((acc, item) => acc + ((item.cantidad || 0) * (item.precioUnitario || 0)), 0);
+            const totalEjercido = (state.data.financiero.facturas || []).reduce((acc, item) => acc + (parseFloat(item.monto) || 0), 0);
+            const porEjercer = totalPresupuesto - totalEjercido;
+
+            dom.finAutorizado.textContent = '$' + totalPresupuesto.toFixed(2);
+            dom.finEjercido.textContent = '$' + totalEjercido.toFixed(2);
+            dom.finPorEjercer.textContent = '$' + porEjercer.toFixed(2);
+
+            dom.finPorEjercer.className = porEjercer >= 0 ? 'fw-bold text-primary' : 'fw-bold text-danger';
+        }
+
+        // --- TICKETS ---
+        function _renderTickets() {
+            if (!dom.listaTickets) return;
+            dom.listaTickets.innerHTML = '';
+
+            const tickets = state.data.tickets || [];
+            if (tickets.length === 0) {
+                dom.listaTickets.innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-info border-0 shadow-sm d-flex align-items-center">
+                            <i class="bi bi-info-circle-fill me-2 fs-4"></i>
+                            <div>
+                                <strong>Sin tickets</strong>
+                                <p class="mb-0 small">No hay tickets registrados para este comunicado.</p>
+                            </div>
+                        </div>
+                    </div>`;
+                return;
+            }
+
+            tickets.forEach((ticket, index) => {
+                const col = document.createElement('div');
+                col.className = 'col-md-6 mb-3';
+                col.innerHTML = `
+                    <div class="card h-100 shadow-sm border-0">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="badge bg-${ticket.prioridad === 'Alta' ? 'danger' : (ticket.prioridad === 'Media' ? 'warning' : 'info')}">${ticket.prioridad || 'Normal'}</span>
+                                <button class="btn btn-link text-danger p-0" onclick="ComunicadoDetalle.removeTicket(${index})"><i class="bi bi-x"></i></button>
+                            </div>
+                            <input type="text" class="form-control form-control-sm border-0 fw-bold mb-2" placeholder="Título del Ticket" value="${ticket.titulo || ''}" onchange="ComunicadoDetalle.updateTicket(${index}, 'titulo', this.value)">
+                            <textarea class="form-control form-control-sm border-0 bg-light mb-2" rows="2" placeholder="Descripción..." onchange="ComunicadoDetalle.updateTicket(${index}, 'descripcion', this.value)">${ticket.descripcion || ''}</textarea>
+                            <select class="form-select form-select-sm border-0 text-muted" onchange="ComunicadoDetalle.updateTicket(${index}, 'estado', this.value)">
+                                <option value="Abierto" ${ticket.estado === 'Abierto' ? 'selected' : ''}>Abierto</option>
+                                <option value="En Proceso" ${ticket.estado === 'En Proceso' ? 'selected' : ''}>En Proceso</option>
+                                <option value="Resuelto" ${ticket.estado === 'Resuelto' ? 'selected' : ''}>Resuelto</option>
+                            </select>
+                        </div>
+                    </div>
+                `;
+                dom.listaTickets.appendChild(col);
+            });
+        }
+
+        function _addTicket() {
+            state.data.tickets.push({ titulo: '', descripcion: '', prioridad: 'Media', estado: 'Abierto' });
+            _renderTickets();
+        }
+
+        function _renderActualizaciones() {
+            // TODO: Implementar renderizado de historial real
+        }
+
+        async function _guardarTodo() {
+            if (state.saving) return;
+            state.saving = true;
+            dom.btnGuardar.disabled = true;
+            dom.btnGuardar.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Guardando...';
+
+            try {
+                const updates = {
+                    comunicado: dom.genComunicado.value,
+                    fecha: dom.genFecha.value,
+                    descripcion: dom.genDescripcion.value,
+                    idEstado: dom.genEstado.value,
+                    distrito: dom.genDistrito.value,
+                    siniestro: dom.genSiniestro.value,
+                    presupuesto: state.data.presupuesto || [],
+                    equipo: state.data.equipo || [],
+                    financiero: state.data.financiero || {},
+                    tickets: state.data.tickets || []
+                };
+
+                await serverCall('updateComunicado', state.id, updates);
+                alert('Cambios guardados correctamente.');
+                await _loadData();
+
+            } catch (error) {
+                console.error('Error guardando:', error);
+                alert('Error al guardar: ' + error.message);
+            } finally {
+                state.saving = false;
+                dom.btnGuardar.disabled = false;
+                dom.btnGuardar.innerHTML = '<i class="bi bi-save"></i> Guardar Cambios';
+            }
+        }
+
+        return {
+            init,
+            mount,
+            updatePresupuesto: (index, field, value) => {
+                if (!state.data.presupuesto[index]) return;
+                // Si es monto, convertir a número, sino dejar como string
+                state.data.presupuesto[index][field] = (field === 'monto' || field === 'montoCapturado') ? (parseFloat(value) || 0) : value;
+                _renderPresupuesto(); // Importante para recalcular nextRev si cambiara algo estructural, pero principalmente para actualizar totales de UI
+                // Nota: Podríamos optimizar no re-renderizando todo, pero _renderPresupuesto actualiza totales del footer.
+            },
+            removePresupuesto: (index) => {
+                state.data.presupuesto.splice(index, 1);
+                _renderPresupuesto();
+            },
+            updateEquipo: (index, field, value) => {
+                if (!state.data.equipo[index]) return;
+                state.data.equipo[index][field] = value;
+                _renderEquipo();
+            },
+            removeEquipo: (index) => {
+                state.data.equipo.splice(index, 1);
+                _renderEquipo();
+            },
+            updateFinanciero: (tipo, index, field, value) => {
+                const list = state.data.financiero[tipo];
+                if (!list || !list[index]) return;
+                list[index][field] = field === 'monto' ? parseFloat(value) : value;
+                _renderFinanciero();
+            },
+            removeFinanciero: (tipo, index) => {
+                const list = state.data.financiero[tipo];
+                if (!list) return;
+                list.splice(index, 1);
+                _renderFinanciero();
+            },
+            updateTicket: (index, field, value) => {
+                if (!state.data.tickets[index]) return;
+                state.data.tickets[index][field] = value;
+                _renderTickets();
+            },
+            removeTicket: (index) => {
+                state.data.tickets.splice(index, 1);
+                _renderTickets();
+            }
+        };
+    })();
+</script>
