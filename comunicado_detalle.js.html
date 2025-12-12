@@ -79,7 +79,7 @@
 
             // General
             dom.genId = document.getElementById('gen-id');
-            dom.genCuenta = document.getElementById('gen-cuenta');
+            dom.genCuenta = document.getElementById('gen-cuenta') || document.getElementById('gen-referencia');
             dom.genAjustador = document.getElementById('gen-ajustador');
             dom.genFecha = document.getElementById('gen-fecha');
             dom.genComunicado = document.getElementById('gen-comunicado');
@@ -199,7 +199,12 @@
 
             // Datos Generales
             dom.genId.value = d.id || '';
-            dom.genCuenta.value = referencia; // Campo visual "Referencia"
+
+            // Referencia (buscar por ID original o alternativo)
+            const inputReferencia = dom.genCuenta || document.getElementById('gen-referencia');
+            if (inputReferencia) {
+                inputReferencia.value = referencia;
+            }
 
             // AJUSTADOR (Solo Lectura - Heredado de Cuenta)
             // Backend ahora envía d.ajustador = { id, nombre }
