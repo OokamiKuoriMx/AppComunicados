@@ -181,6 +181,20 @@
                             oninput="this.value = this.value.toUpperCase()" required placeholder="Ej: AM005837">
                         <div class="invalid-feedback">El nombre de la referencia es obligatorio.</div>
                     </div>
+                    <div class="mb-3">
+                        <label for="referenciaAjustador" class="form-label">Ajustador</label>
+                        <div class="dropdown combobox-dropdown w-100">
+                            <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                id="referenciaAjustador" autocomplete="off" placeholder="Ej: JUAN PEREZ" role="combobox"
+                                data-bs-toggle="dropdown" aria-haspopup="listbox" aria-autocomplete="list"
+                                aria-expanded="false" aria-owns="ajustadorSuggestions">
+                            <input type="hidden" id="referenciaAjustadorId">
+                            <div class="dropdown-menu w-100 shadow-sm combo-suggestions" id="ajustadorSuggestions"
+                                role="listbox" style="max-height: 220px; overflow-y: auto;"></div>
+                        </div>
+                        <small class="text-muted">Selecciona un ajustador existente o escribe uno nuevo para
+                            crearlo.</small>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>

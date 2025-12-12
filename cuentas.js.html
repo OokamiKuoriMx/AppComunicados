@@ -46,7 +46,8 @@
         const COMBO_SOURCES = {
             estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
             distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
-            siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] }
+            siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] },
+            ajustador: { catalog: 'ajustadores', labelKeys: ['nombre', 'ajustador'] }
         };
 
         // =========================================================================
@@ -328,20 +329,50 @@
             }
         };
 
-        const _openCuentaModal = (cuenta = null) => {
+        const _openCuentaModal = async (cuenta = null) => {
             const { dom, modals } = state;
             dom.formCuenta?.classList.remove('was-validated');
             dom.formCuenta?.reset();
 
             const modalTitle = dom.modalCuenta ? dom.modalCuenta.querySelector('.modal-title') : null;
             if (modalTitle) {
-                modalTitle.textContent = cuenta ? 'Editar Cuenta' : 'Agregar Cuenta';
+                modalTitle.textContent = cuenta ? 'Editar Referencia' : 'Agregar Referencia';
             }
             const cuentaId = hasValue(cuenta?.id) ? cuenta.id : '';
             const cuentaIdInput = dom.modalCuenta?.querySelector('#cuentaId');
             const nombreCuentaInput = dom.modalCuenta?.querySelector('#nombreCuenta');
             if (cuentaIdInput) cuentaIdInput.value = cuentaId;
             if (nombreCuentaInput) nombreCuentaInput.value = cuenta?.referencia || '';
+
+            // Cargar catálogos antes de mostrar el modal
+            try {
+                await _loadCatalogos();
+
+                // Poblar el combobox de ajustador
+                const ajustadorCombo = state.combos.ajustador;
+                if (ajustadorCombo?.input && ajustadorCombo?.hidden) {
+                    // Si estamos editando, buscar el ajustador actual
+                    if (cuenta?.idAjustador) {
+                        const ajustadorActual = state.catalogos.ajustadores.find(
+                            a => String(a.id) === String(cuenta.idAjustador)
+                        );
+                        if (ajustadorActual) {
+                            ajustadorCombo.input.value = ajustadorActual.nombre || ajustadorActual.ajustador || '';
+                            ajustadorCombo.hidden.value = ajustadorActual.id;
+                        } else {
+                            ajustadorCombo.input.value = '';
+                            ajustadorCombo.hidden.value = '';
+                        }
+                    } else {
+                        ajustadorCombo.input.value = '';
+                        ajustadorCombo.hidden.value = '';
+                    }
+                    // Renderizar sugerencias iniciales
+                    _renderComboSuggestions('ajustador', '', { autoOpen: false });
+                }
+            } catch (err) {
+                console.error('Error al cargar catálogos para modal:', err);
+            }
 
             modals.cuenta?.show();
         };
@@ -356,10 +387,38 @@
 
             const id = dom.modalCuenta?.querySelector('#cuentaId')?.value;
             const nombreInput = dom.modalCuenta?.querySelector('#nombreCuenta');
-            const record = { referencia: nombreInput?.value?.toUpperCase() };
+
+            // Obtener datos del ajustador
+            const ajustadorCombo = state.combos.ajustador;
+            const ajustadorNombre = ajustadorCombo?.input?.value?.trim().toUpperCase() || '';
+            let ajustadorId = ajustadorCombo?.hidden?.value || '';
 
             _setButtonLoading(dom.btnGuardarCuenta, true);
             try {
+                // Si hay nombre de ajustador pero no ID, es un ajustador nuevo
+                if (ajustadorNombre && !ajustadorId) {
+                    devLog('Creando nuevo ajustador:', ajustadorNombre);
+                    const ajustadorResult = await serverCall('ensureCatalogRecord', 'ajustadores', {
+                        nombre: ajustadorNombre
+                    });
+                    if (ajustadorResult?.id) {
+                        ajustadorId = ajustadorResult.id;
+                        // Actualizar catálogo local si se creó uno nuevo
+                        if (ajustadorResult.created) {
+                            state.catalogos.ajustadores.push({
+                                id: ajustadorId,
+                                nombre: ajustadorNombre
+                            });
+                        }
+                    }
+                }
+
+                // Preparar el registro completo
+                const record = {
+                    referencia: nombreInput?.value?.toUpperCase(),
+                    idAjustador: ajustadorId || null
+                };
+
                 const operation = id ? 'updateRow' : 'createRow';
                 const args = id ? ['cuentas', id, record] : ['cuentas', record];
                 const savedData = await serverCall(operation, ...args);
@@ -544,7 +603,14 @@
 
         const _initCombobox = (key) => {
             const combo = state.combos[key];
-            const domKey = `comunicado${key.charAt(0).toUpperCase() + key.slice(1)}`;
+
+            // El ajustador usa prefijo 'referencia', los demás usan 'comunicado'
+            let domKey;
+            if (key === 'ajustador') {
+                domKey = 'referenciaAjustador';
+            } else {
+                domKey = `comunicado${key.charAt(0).toUpperCase() + key.slice(1)}`;
+            }
 
             combo.input = state.dom[domKey];
             combo.hidden = state.dom[`${domKey}Id`];
@@ -791,7 +857,7 @@
             return {
                 cuentas: [],
                 comunicados: [],
-                catalogos: { estados: [], distritosRiego: [], siniestros: [] },
+                catalogos: { estados: [], distritosRiego: [], siniestros: [], ajustadores: [] },
                 catalogosLoaded: false,
                 catalogosPromise: null,
                 cuentaSeleccionadaId: null,
@@ -802,7 +868,8 @@
                 combos: {
                     estado: { items: [], activeIndex: -1, hideTimeout: null },
                     distrito: { items: [], activeIndex: -1, hideTimeout: null },
-                    siniestro: { items: [], activeIndex: -1, hideTimeout: null }
+                    siniestro: { items: [], activeIndex: -1, hideTimeout: null },
+                    ajustador: { items: [], activeIndex: -1, hideTimeout: null }
                 },
                 isNuevoSiniestro: false
             };
@@ -854,7 +921,8 @@
                 'modalNuevoComunicado', 'form-comunicado', 'modalCuentaSeleccionada', 'comunicadoNombre', 'comunicadoDescripcion',
                 'comunicadoFecha', 'comunicadoEstado', 'comunicadoEstadoId', 'estadoSuggestions', 'comunicadoDistrito',
                 'comunicadoDistritoId', 'distritoSuggestions', 'comunicadoSiniestro', 'comunicadoSiniestroId', 'siniestroSuggestions',
-                'wrapperSiniestroExtra', 'alertErrorComunicado', 'alertInfoComunicado', 'btnGuardarComunicado', 'siniestroFenomeno', 'siniestroFi'
+                'wrapperSiniestroExtra', 'alertErrorComunicado', 'alertInfoComunicado', 'btnGuardarComunicado', 'siniestroFenomeno', 'siniestroFi',
+                'referenciaAjustador', 'referenciaAjustadorId', 'ajustadorSuggestions'
             ];
             ids.forEach(id => {
                 const key = id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
@@ -932,12 +1000,16 @@
                 return state.catalogosPromise;
             }
 
-            state.catalogosPromise = serverCall('getComunicadoCatalogs')
-                .then(data => {
+            state.catalogosPromise = Promise.all([
+                serverCall('getComunicadoCatalogs'),
+                serverCall('readAllRows', 'ajustadores').catch(() => [])
+            ])
+                .then(([data, ajustadoresData]) => {
                     state.catalogos = {
                         estados: data.estados || [],
                         distritosRiego: data.distritosRiego || [],
                         siniestros: data.siniestros || [],
+                        ajustadores: ajustadoresData || [],
                     };
 
                     state.catalogosLoaded = true;
