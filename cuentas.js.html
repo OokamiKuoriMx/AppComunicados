@@ -138,13 +138,13 @@
                 const accionesHtml = isActive ? `
                 <div class="btn-group btn-group-sm">
                     <button type="button" class="btn btn-outline-secondary btn-edit" data-id="${cuenta.id}" title="Editar"><i class="bi bi-pencil"></i></button>
-                    <button type="button" class="btn btn-outline-danger btn-delete" data-id="${cuenta.id}" data-nombre="${escapeHtml(cuenta.cuenta)}" title="Eliminar"><i class="bi bi-trash"></i></button>
+                    <button type="button" class="btn btn-outline-danger btn-delete" data-id="${cuenta.id}" data-nombre="${escapeHtml(cuenta.referencia)}" title="Eliminar"><i class="bi bi-trash"></i></button>
                 </div>` : '';
 
                 return `
                 <div class="card account-item border ${isActive ? 'border-primary shadow-sm' : ''}" data-id="${cuenta.id}" role="listitem" style="cursor: pointer;">
                     <div class="card-body d-flex justify-content-between align-items-center gap-3 py-2">
-                        <span class="fw-semibold">${escapeHtml(cuenta.cuenta)}</span>
+                        <span class="fw-semibold">${escapeHtml(cuenta.referencia)}</span>
                         ${accionesHtml}
                     </div>
                 </div>`;
@@ -222,14 +222,14 @@
         const _actualizarSeleccionCuenta = (cuenta, { cargarComunicados = false } = {}) => {
             state.cuentaSeleccionadaId = cuenta?.id ?? null;
             devLog('Cuenta seleccionada actualizada a ID:', state.cuentaSeleccionadaId);
-            state.cuentaSeleccionadaNombre = cuenta?.cuenta ?? '';
+            state.cuentaSeleccionadaNombre = cuenta?.referencia ?? '';
             devLog('Nombre de cuenta seleccionada:', state.cuentaSeleccionadaNombre);
             if (state.dom.btnNuevoComunicado) {
                 state.dom.btnNuevoComunicado.disabled = !cuenta;
             }
 
             if (state.dom.badgeCuentaSeleccionada) {
-                state.dom.badgeCuentaSeleccionada.textContent = cuenta ? cuenta.cuenta : 'Sin cuenta';
+                state.dom.badgeCuentaSeleccionada.textContent = cuenta ? cuenta.referencia : 'Sin cuenta';
                 state.dom.badgeCuentaSeleccionada.classList.toggle('text-bg-primary', !!cuenta);
                 state.dom.badgeCuentaSeleccionada.classList.toggle('text-bg-secondary', !cuenta);
             }
@@ -341,7 +341,7 @@
             const cuentaIdInput = dom.modalCuenta?.querySelector('#cuentaId');
             const nombreCuentaInput = dom.modalCuenta?.querySelector('#nombreCuenta');
             if (cuentaIdInput) cuentaIdInput.value = cuentaId;
-            if (nombreCuentaInput) nombreCuentaInput.value = cuenta?.cuenta || '';
+            if (nombreCuentaInput) nombreCuentaInput.value = cuenta?.referencia || '';
 
             modals.cuenta?.show();
         };
@@ -356,7 +356,7 @@
 
             const id = dom.modalCuenta?.querySelector('#cuentaId')?.value;
             const nombreInput = dom.modalCuenta?.querySelector('#nombreCuenta');
-            const record = { cuenta: nombreInput?.value?.toUpperCase() };
+            const record = { referencia: nombreInput?.value?.toUpperCase() };
 
             _setButtonLoading(dom.btnGuardarCuenta, true);
             try {
@@ -472,7 +472,7 @@
         const _handleEliminarCuentaClick = (cuentaId) => {
             const cuenta = state.cuentas.find(c => idsAreEqual(c.id, cuentaId));
             if (cuenta) {
-                _openDeleteModal(cuenta.id, cuenta.cuenta);
+                _openDeleteModal(cuenta.id, cuenta.referencia);
             }
         };
 
@@ -911,67 +911,86 @@
 
             } catch (error) {
                 console.error('❌ PASO 3 falló:', error);
-                throw error;
+                _renderErrorInicial(container, error.message || 'No fue posible inicializar el componente.');
+                return;
             }
-        };
+
+            console.log('✅ PASO 3 completado');
+        }
 
         // =========================================================================
         // FUNCIONES DEL PASO 4
         // =========================================================================
+        // SUBFUNCIÓN: Carga los catálogos del servidor con caché y manejo de concurrencia
+        const _loadCatalogos = () => {
+            // Si ya están cargados, retornar inmediatamente
+            if (state.catalogosLoaded) {
+                return Promise.resolve(state.catalogos);
+            }
 
-        // SUBFUNCIÓN: Actualiza las opciones de los comboboxes con los datos del catálogo.
-        const _updateComboboxOptions = () => {
-            if (!state.catalogos) return;
-            // Aquí iría la lógica para actualizar los combos si fuera necesario
-            // Por ahora, los combos se actualizan al renderizar o al abrirse
+            if (state.catalogosPromise) {
+                return state.catalogosPromise;
+            }
+
+            state.catalogosPromise = serverCall('getComunicadoCatalogs')
+                .then(data => {
+                    state.catalogos = {
+                        estados: data.estados || [],
+                        distritosRiego: data.distritosRiego || [],
+                        siniestros: data.siniestros || [],
+                    };
+
+                    state.catalogosLoaded = true;
+                    state.catalogosPromise = null;
+
+                    return state.catalogos;
+                })
+                .catch(err => {
+                    state.catalogosPromise = null;
+                    state.catalogosLoaded = false;
+
+                    console.error('Error al cargar catálogos:', err);
+                    throw err;
+                });
+
+            return state.catalogosPromise;
         };
 
-        // SUBFUNCIÓN: Carga los catálogos necesarios desde el servidor.
-        const _loadCatalogos = async () => {
-            devLog('Cargando catálogos...');
-            try {
-                const catalogs = await serverCall('getComunicadoCatalogs');
-                state.catalogos = catalogs || {};
-                devLog('Catálogos cargados:', state.catalogos);
+        // SUBFUNCIÓN: Carga las cuentas del servidor
+        const _loadCuentas = async () => {
+            // Mostrar spinner mientras se cargan las cuentas
+            _renderSpinner('listaCuentas', 'Cargando cuentas...');
 
-                // Actualizar opciones de los comboboxes
-                _updateComboboxOptions();
-            } catch (error) {
-                console.error('Error al cargar catálogos:', error);
-                // No fallamos fatalmente, pero los combos estarán vacíos
-            }
+            const cuentas = await serverCall('readAllRows', 'cuentas');
+
+            state.cuentas = cuentas || [];
+
+            // Renderizar lista de cuentas
+            _renderCuentas();
+
+            // Actualizar badge de total
+            _updateTotalCuentasBadge();
         };
 
         // FUNCIÓN PRINCIPAL DEL PASO 4
         const _initData = async () => {
-            console.log('=== PASO 4: Cargar datos iniciales ===');
-            _renderSpinner('listaCuentas', 'Cargando cuentas...');
-
+            console.log('=== PASO 4: Cargar catálogos y cuentas en paralelo (Promise.all) ===');
             try {
-                // 1. Cargar Catálogos
-                await _loadCatalogos();
-
-                // 2. Cargar Cuentas
-                devLog('Iniciando carga de cuentas...');
-                const cuentas = await serverApi.readCuentas();
-
-                if (!Array.isArray(cuentas)) {
-                    throw new Error('La respuesta del servidor no es un arreglo de cuentas validas.');
-                }
-
-                state.cuentas = cuentas;
-                console.log(`✅ PASO 4 completado: ${cuentas.length} cuentas cargadas.`);
-
-                // 3. Renderizar Cuentas
-                _renderCuentas();
-
+                await Promise.all([
+                    _loadCatalogos(),
+                    _loadCuentas()
+                ]);
+                console.log('✅ PASO 4 completado: Catálogos y cuentas cargados');
             } catch (error) {
                 console.error('❌ PASO 4 falló:', error);
-                _renderError('listaCuentas', 'Error al cargar datos. Ver consola.');
+                _renderError('listaCuentas', error.message || 'Error al cargar datos iniciales.');
+                globalThis.showToast?.('Error al cargar datos iniciales.', 'error');
                 throw error;
             }
-        };
+        }
 
+        // =========================================================================
+        // FUNCIONES DEL PASO 5
         // =========================================================================
         // FUNCIÓN PRINCIPAL DEL PASO 5
         const _primeraCuentaSeleccionable = () => {
@@ -988,6 +1007,7 @@
                 _actualizarSeleccionCuenta(cuentaASeleccionar);
                 console.log(`✅ PASO 5 completado: Cuenta "${cuentaASeleccionar.cuenta}" seleccionada`);
             }
+
         };
 
         // =========================================================================
@@ -1046,7 +1066,7 @@
 
             try {
                 await _loadComunicados(cuentaId);
-                console.log(`✅ PASO 6 completado: Comunicados cargados para la cuenta ID ${cuentaId} `);
+                console.log(`✅ PASO 6 completado: Comunicados cargados para la cuenta ID ${cuentaId}`);
             } catch (error) {
                 console.error('❌ PASO 6 falló:', error);
                 _renderError('panelComunicados', error.message || 'Error al cargar comunicados.');
@@ -1095,12 +1115,13 @@
                 console.error('❌ FALLO CRÍTICO EN LA CARGA:', error);
 
                 // Muestra un error final al usuario
-                _renderErrorInicial(container, `Error fatal al cargar: ${error.message} `);
+                _renderErrorInicial(container, `Error fatal al cargar: ${error.message}`);
             }
         };
 
         // Alias público para mantener compatibilidad con código que llama a mount()
         const mount = async (container) => init(container);
+
 
 
         // =========================================================================
@@ -1128,20 +1149,7 @@
             _handleCuentaClick,
             _handleComunicadoClick,
             _handleEditarCuentaClick,
-            _handleEliminarCuentaClick,
-            /**
-            * Renderiza la estructura base del componente.
-            * Requerido por el router (script.html).
-            */
-            render() {
-                return `
-<div class="d-flex justify-content-center align-items-center" style="min-height: 400px;">
-    <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Cargando módulo...</span>
-    </div>
-</div>
-`;
-            }
+            _handleEliminarCuentaClick
         };
     })();
 </script>

@@ -233,20 +233,38 @@ function deleteRow(nombreTabla, id) {
  */
 function readAllRows(nombreTabla) {
     const contexto = 'readAllRows';
+    console.log(`[${contexto}] Iniciando lectura de tabla: "${nombreTabla}"`);
+
     const def = TABLE_DEFINITIONS[nombreTabla];
     if (!def) {
-        return crearRespuestaError(`Tabla "${nombreTabla}" no definida.`, {
+        console.error(`[${contexto}] Tabla no definida: "${nombreTabla}"`);
+        return crearRespuestaError(`Tabla "${nombreTabla}" no está definida.`, {
             source: contexto,
             details: { nombreTabla }
         });
     }
 
+    console.log(`[${contexto}] Definición encontrada. sheetName: "${def.sheetName}"`);
+
     const { headers, rows } = obtenerDatosTabla(def.sheetName);
+
+    console.log(`[${contexto}] obtenerDatosTabla retornó:`, {
+        headersLength: headers?.length || 0,
+        rowsLength: rows?.length || 0,
+        headers: headers
+    });
+
     if (!headers || headers.length === 0) {
+        console.warn(`[${contexto}] Headers vacíos para tabla "${nombreTabla}"`);
         return { success: true, data: [], message: 'No se encontraron datos.' };
     }
 
     const datos = rows.map(fila => filaAObjeto(def, headers, fila));
+
+    console.log(`[${contexto}] Datos procesados para "${nombreTabla}":`, {
+        totalRegistros: datos.length,
+        primerRegistro: datos[0] || null
+    });
 
     return { success: true, data: datos, message: 'Registros leídos con éxito.' };
 }
@@ -428,35 +446,32 @@ function ensureCatalogRecord(catalogKey, data) {
             return { success: true, created: false, id: '', data: null };
         }
 
-        // Determinar el campo por el cual buscar (nameField tiene prioridad sobre primaryField)
-        // primaryField suele ser 'id', pero queremos buscar por el nombre
-        const searchField = definition.nameField
-            || (definition.primaryField !== 'id' ? definition.primaryField : null)
-            || Object.keys(definition.headers || {}).find(k => k !== 'id');
+        // Determinar el campo principal del catálogo
+        const primaryField = definition.primaryField
+            || definition.nameField
+            || Object.keys(definition.headers || {})[0];
 
-        if (!searchField) {
-            return { success: false, message: `No se pudo determinar el campo de búsqueda del catálogo "${catalogKey}".` };
+        if (!primaryField) {
+            return { success: false, message: `No se pudo determinar el campo principal del catálogo "${catalogKey}".` };
         }
 
         // Obtener el valor a buscar
-        const searchValue = data[searchField] || data.nombre || '';
+        const searchValue = data[primaryField] || data.nombre || '';
         if (!searchValue || String(searchValue).trim() === '') {
             return { success: true, created: false, id: '', data: null };
         }
 
         const normalizedSearch = String(searchValue).trim().toLowerCase();
-        console.log(`[ensureCatalogRecord] Buscando en ${catalogKey} por ${searchField}: "${searchValue}"`);
 
         // Buscar si ya existe
         const allRecords = readAllRows(catalogKey);
         if (allRecords.success && allRecords.data) {
             const existing = allRecords.data.find(record => {
-                const recordValue = record[searchField] || record.nombre || '';
+                const recordValue = record[primaryField] || record.nombre || '';
                 return String(recordValue).trim().toLowerCase() === normalizedSearch;
             });
 
             if (existing) {
-                console.log(`[ensureCatalogRecord] Registro existente encontrado con id: ${existing.id}`);
                 return {
                     success: true,
                     created: false,
@@ -467,11 +482,8 @@ function ensureCatalogRecord(catalogKey, data) {
         }
 
         // No existe, crear nuevo registro
-        console.log(`[ensureCatalogRecord] No encontrado, creando nuevo registro en ${catalogKey}:`, JSON.stringify(data));
         const createResult = createRow(catalogKey, data);
-
         if (createResult.success) {
-            console.log(`[ensureCatalogRecord] Registro creado exitosamente con id: ${createResult.data?.id}`);
             return {
                 success: true,
                 created: true,
@@ -479,7 +491,6 @@ function ensureCatalogRecord(catalogKey, data) {
                 data: createResult.data || null
             };
         } else {
-            console.error(`[ensureCatalogRecord] Error al crear registro: ${createResult.message}`);
             return {
                 success: false,
                 message: createResult.message || 'Error al crear registro en catálogo.'
@@ -490,4 +501,52 @@ function ensureCatalogRecord(catalogKey, data) {
         console.error('Error en ensureCatalogRecord:', error);
         return { success: false, message: error.message };
     }
+}
+
+/**
+ * FUNCIÓN DE DIAGNÓSTICO - Ejecutar desde el editor para probar
+ * Ve a Ejecutar > Ejecutar función > debugReadCuentas
+ * Luego revisa los logs en Ejecuciones
+ */
+function debugReadCuentas() {
+    console.log('=== INICIO DIAGNÓSTICO ===');
+
+    // 1. Verificar TABLE_DEFINITIONS
+    const def = TABLE_DEFINITIONS['cuentas'];
+    console.log('1. TABLE_DEFINITIONS.cuentas:', JSON.stringify(def, null, 2));
+
+    // 2. Verificar que la hoja existe
+    const hoja = SpreadsheetApp.getActive().getSheetByName(def.sheetName);
+    console.log('2. Hoja encontrada:', !!hoja, 'Nombre:', def.sheetName);
+
+    if (!hoja) {
+        console.error('ERROR: La hoja no existe');
+        return;
+    }
+
+    // 3. Leer datos directamente
+    const valores = hoja.getDataRange().getValues();
+    console.log('3. Total filas (incluyendo headers):', valores.length);
+    console.log('4. Primera fila (headers):', JSON.stringify(valores[0]));
+    if (valores.length > 1) {
+        console.log('5. Segunda fila (primer dato):', JSON.stringify(valores[1]));
+    }
+
+    // 4. Probar obtenerDatosTabla
+    const datosTabla = obtenerDatosTabla(def.sheetName);
+    console.log('6. obtenerDatosTabla headers:', JSON.stringify(datosTabla.headers));
+    console.log('7. obtenerDatosTabla rows count:', datosTabla.rows.length);
+
+    // 5. Probar filaAObjeto con la primera fila
+    if (datosTabla.rows.length > 0) {
+        const objetoPrueba = filaAObjeto(def, datosTabla.headers, datosTabla.rows[0]);
+        console.log('8. filaAObjeto resultado:', JSON.stringify(objetoPrueba));
+    }
+
+    // 6. Probar readAllRows completo
+    const resultado = readAllRows('cuentas');
+    console.log('9. readAllRows resultado:', JSON.stringify(resultado, null, 2));
+
+    console.log('=== FIN DIAGNÓSTICO ===');
+    return resultado;
 }

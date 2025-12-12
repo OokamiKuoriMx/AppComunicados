@@ -2,7 +2,7 @@
  * ============================================================================
  * ARCHIVO: comunicados.crud.gs
  * Descripción: Operaciones CRUD para Comunicados
- * Versión: 2.4 (Fix: Ajustador Integration Check)
+ * Versión: 2.0 (Refactorizada)
  * ============================================================================
  */
 
@@ -12,75 +12,18 @@
  * @return {Object} {success, data: {estados, distritosRiego, siniestros}}
  */
 function getComunicadoCatalogs() {
-    const debugLog = [];
-    const log = (msg) => {
-        console.log(msg);
-        debugLog.push(String(msg));
-    };
-
     try {
-        log('Iniciando getComunicadoCatalogs...');
+        // Leer catálogos usando función genérica
+        const estadosResponse = readAllRows('estados');
+        const distritosResponse = readAllRows('distritosRiego');
+        const siniestrosResponse = readAllRows('siniestros');
 
-        // 1. Verificar hojas disponibles en el libro
-        const ss = SpreadsheetApp.getActive();
-        const sheets = ss.getSheets();
-        const sheetNames = sheets.map(s => s.getName());
-        log(`Hojas disponibles en el libro (${sheetNames.length}): ${sheetNames.join(', ')}`);
-
-        // 2. Función auxiliar para leer y diagnosticar
-        const leerCatalogo = (key) => {
-            const def = TABLE_DEFINITIONS[key];
-            if (!def) {
-                log(`Error: No hay definición para la tabla '${key}'`);
-                return [];
-            }
-            const nombreHoja = def.sheetName;
-            log(`Leyendo catálogo '${key}' desde hoja '${nombreHoja}'...`);
-
-            if (!sheetNames.includes(nombreHoja)) {
-                log(`CRÍTICO: La hoja '${nombreHoja}' NO existe exactamente. Buscando coincidencias...`);
-                const match = sheetNames.find(n => n.toLowerCase() === nombreHoja.toLowerCase());
-                if (match) log(`-> Encontrada hoja similar: '${match}' (diferencia de mayúsculas/minúsculas)`);
-                else log(`-> No se encontró ninguna hoja similar a '${nombreHoja}'`);
-            }
-
-            const response = readAllRows(key);
-            if (!response.success) {
-                log(`Error en readAllRows('${key}'): ${response.message}`);
-                return [];
-            }
-
-            const data = response.data || [];
-            log(`Éxito leyendo '${key}': ${data.length} registros encontrados.`);
-            if (data.length > 0) {
-                log(`Ejemplo primer registro '${key}': ${JSON.stringify(data[0])}`);
-            } else {
-                // Diagnóstico profundo si está vacío
-                const rawSheet = ss.getSheetByName(nombreHoja);
-                if (rawSheet) {
-                    const lastRow = rawSheet.getLastRow();
-                    log(`Diagnóstico '${nombreHoja}': LastRow=${lastRow}`);
-                    if (lastRow > 0) {
-                        const headers = rawSheet.getRange(1, 1, 1, rawSheet.getLastColumn()).getValues()[0];
-                        log(`Headers en '${nombreHoja}': ${JSON.stringify(headers)}`);
-                    }
-                }
-            }
-            return data;
-        };
-
-        // 3. Leer los catálogos
-        const estados = leerCatalogo('estados');
-        const distritos = leerCatalogo('distritosRiego');
-        const siniestros = leerCatalogo('siniestros');
-        const ajustadores = leerCatalogo('ajustadores');
-
-        // 4. Procesar datos (ordenar)
-        const processResponse = (data) => {
-            if (Array.isArray(data)) {
-                return data.sort((a, b) => {
-                    const nombreA = String(a.nombre || a.nombreAjustador || a.estado || a.distritoRiego || a.siniestro || '');
-                    const nombreB = String(b.nombre || b.nombreAjustador || b.estado || b.distritoRiego || b.siniestro || '');
+        // Procesar respuestas
+        const processResponse = (response) => {
+            if (response && response.success && Array.isArray(response.data)) {
+                return response.data.sort((a, b) => {
+                    const nombreA = String(a.nombre || a.estado || a.distritoRiego || a.siniestro || '');
+                    const nombreB = String(b.nombre || b.estado || b.distritoRiego || b.siniestro || '');
                     return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
                 });
             }
@@ -90,21 +33,17 @@ function getComunicadoCatalogs() {
         return {
             success: true,
             data: {
-                estados: processResponse(estados),
-                distritosRiego: processResponse(distritos),
-                siniestros: processResponse(siniestros),
-                ajustadores: processResponse(ajustadores),
-                debugLogs: debugLog // Devolver logs dentro de data para sobrevivir al unwrap
+                estados: processResponse(estadosResponse),
+                distritosRiego: processResponse(distritosResponse),
+                siniestros: processResponse(siniestrosResponse)
             }
         };
 
     } catch (error) {
-        log(`Excepción en getComunicadoCatalogs: ${error.message}`);
-        console.error(error);
+        console.error('Error en getComunicadoCatalogs:', error);
         return {
             success: false,
-            message: `Error al obtener catálogos: ${error.message}`,
-            debugLogs: debugLog
+            message: `Error al obtener catálogos: ${error.message}`
         };
     }
 }
@@ -219,7 +158,7 @@ function createComunicado(data) {
         const comunicadoId = obtenerSiguienteId(comunicadosTabla.rows, idxComunicadoId);
         const datosGeneralesId = obtenerSiguienteId(datosGeneralesTabla.rows, idxDatosGeneralesId);
 
-        const descripcion = `${cuenta.cuenta}-${comunicadoNombre}`;
+        const descripcion = `${cuenta.referencia}-${comunicadoNombre}`;
         if (descripcion.length > 15) {
             return crearRespuestaError(
                 `La descripción "${descripcion}" excede 15 caracteres. Usa un comunicado más corto.`,
@@ -233,8 +172,8 @@ function createComunicado(data) {
             descripcion: descripcion,
             fecha: fecha,
             idEstado: estadoId,
-            idDR: distritoResult.data?.id || '',
-            idSiniestro: siniestroResult.data?.id || '',
+            idDR: distritoResult.data.id,
+            idSiniestro: siniestroResult.data.id,
             fechaAsignacion: null,
             idActualizacion: null
         };
@@ -283,6 +222,11 @@ function createComunicado(data) {
 }
 
 /**
+ * Elimina una cuenta (valida que no tenga comunicados)
+ * @param {string|number} id - ID de la cuenta
+ * @return {Object} {success, message}
+ */
+/**
  * === ELIMINAR CUENTA ===
  * Verifica dependencias y elimina la cuenta solicitada
  */
@@ -310,7 +254,7 @@ function deleteCuenta(id) {
 
         if (comunicados.data && comunicados.data.length > 0) {
             return crearRespuestaError(
-                `La cuenta "${cuenta.cuenta}" tiene ${comunicados.data.length} comunicado(s) asociado(s) y no puede ser eliminada`,
+                `La cuenta "${cuenta.referencia}" tiene ${comunicados.data.length} comunicado(s) asociado(s) y no puede ser eliminada`,
                 { source: contexto }
             );
         }
@@ -322,7 +266,7 @@ function deleteCuenta(id) {
 
         return {
             success: true,
-            message: `Cuenta "${cuenta.cuenta}" eliminada correctamente`
+            message: `Cuenta "${cuenta.referencia}" eliminada correctamente`
         };
 
     } catch (error) {
@@ -337,16 +281,22 @@ function deleteCuenta(id) {
 
 /**
  * === LISTAR COMUNICADOS POR CUENTA ===
- * Devuelve comunicados enriquecidos asociados a una cuenta.
+ * Devuelve comunicados enriquecidos asociados a una cuenta. Solo falla si las tablas
+ * 'comunicados', 'cuentas' o 'datosGenerales' no se pueden leer.
+ * @param {string|number} idCuenta - ID de la cuenta.
+ * @return {{ success: boolean, data: Array<Object>|null, message: string }}
  */
 function readComunicadosPorCuenta(idCuenta) {
     const contexto = 'readComunicadosPorCuenta';
     let cuentaIdNumerico;
 
+    // --- 1. Validar y Normalizar idCuenta ---
+    // (Misma validación que antes...)
     try {
         if (idCuenta === null || idCuenta === undefined || String(idCuenta).trim() === '') {
             return crearRespuestaError('El ID de la cuenta no puede estar vacío', { source: contexto });
         }
+        // ... (resto de la validación y conversión a número) ...
         if (Array.isArray(idCuenta)) {
             if (idCuenta.length === 0) {
                 return crearRespuestaError('El ID de cuenta proporcionado (array vacío) es inválido', { source: contexto });
@@ -365,32 +315,41 @@ function readComunicadosPorCuenta(idCuenta) {
 
 
     try {
+        // --- 2. Leer TODAS las tablas necesarias UNA SOLA VEZ ---
         const tablasAEvaluar = {
+            // Esenciales (fallo si no se leen)
             comunicados: { response: readAllRows('comunicados'), essential: true },
             cuentas: { response: readAllRows('cuentas'), essential: true },
             datosGenerales: { response: readAllRows('datosGenerales'), essential: true },
+            // Opcionales (continúa si no se leen, datos quedarán vacíos)
             estados: { response: readAllRows('estados'), essential: false },
             distritosRiego: { response: readAllRows('distritosRiego'), essential: false },
             siniestros: { response: readAllRows('siniestros'), essential: false },
             empresas: { response: readAllRows('empresas'), essential: false }
+            // Añade aquí más lecturas opcionales
         };
 
-        const datosListas = {};
+        // --- 2.1 Verificar Lecturas ---
+        const datosListas = {}; // Guardará los arrays de datos (ej. datosListas.comunicados = [...])
         for (const [nombreTabla, resultado] of Object.entries(tablasAEvaluar)) {
             if (!resultado.response || !resultado.response.success) {
+                // Si es esencial y falló, retornar error
                 if (resultado.essential) {
                     return propagarRespuestaError(contexto, resultado.response, {
                         message: `Error crítico al leer la tabla esencial '${nombreTabla}': ${resultado.response?.message || 'respuesta inválida'}`
                     });
                 } else {
-                    console.warn(`readComunicadosPorCuenta: No se pudo leer la tabla opcional '${nombreTabla}'. Se continuará sin estos datos.`);
-                    datosListas[nombreTabla] = [];
+                    // Si no es esencial, loguear advertencia y usar array vacío
+                    console.warn(`readComunicadosPorCuenta: No se pudo leer la tabla opcional '${nombreTabla}'. Se continuará sin estos datos. Error: ${resultado.response?.message || 'respuesta inválida'}`);
+                    datosListas[nombreTabla] = []; // Usar array vacío
                 }
             } else {
+                // Si la lectura fue exitosa, guardar los datos
                 datosListas[nombreTabla] = resultado.response.data || [];
             }
         }
 
+        // --- 3. Utilidades de normalización ---
         const parseNumeric = (value) => {
             const numeric = Number(value);
             return Number.isFinite(numeric) ? numeric : null;
@@ -405,45 +364,60 @@ function readComunicadosPorCuenta(idCuenta) {
                 try {
                     return Utilities.formatDate(value, timeZone, 'yyyy-MM-dd');
                 } catch (dateError) {
+                    console.warn('readComunicadosPorCuenta: No se pudo formatear fecha, se regresará ISO.', dateError);
                     return value.toISOString ? value.toISOString() : String(value);
                 }
             }
             return value === null || value === undefined ? '' : String(value);
         };
 
+        // --- 4. Filtrar Comunicados iniciales ---
         const cuentaIdString = String(cuentaIdNumerico);
         const comunicadosFiltradosPorCuenta = (datosListas.comunicados || []).filter(com =>
             String(com.idCuenta).trim() === cuentaIdString
         );
 
+        console.log('readComunicadosPorCuenta: Comunicados filtrados por cuenta', { cuentaId: cuentaIdNumerico, cantidad: comunicadosFiltradosPorCuenta.length });
+
         if (comunicadosFiltradosPorCuenta.length === 0) {
             return { success: true, data: [], message: 'La cuenta no tiene comunicados registrados' };
         }
 
+        // --- 5. Crear Mapas para búsqueda rápida ---
+        // Se crean mapas incluso si los datos están vacíos (serán mapas vacíos)
         const comunicadosPorId = mapeoPorCampo(comunicadosFiltradosPorCuenta, 'id');
         const cuentasPorId = mapeoPorCampo(datosListas.cuentas || [], 'id');
         const datosGeneralesPorComunicadoId = mapeoPorCampo(datosListas.datosGenerales || [], 'idComunicado');
         const estadosPorId = mapeoPorCampo(datosListas.estados || [], 'id');
         const distritosPorId = mapeoPorCampo(datosListas.distritosRiego || [], 'id');
         const siniestrosPorId = mapeoPorCampo(datosListas.siniestros || [], 'id');
+        const empresasPorId = mapeoPorCampo(datosListas.empresas || [], 'id');
+        // ... crea más mapas si leíste más tablas ...
 
+        // Obtener la cuenta específica (ya leída y mapeada)
         const cuentaActual = obtenerDesdeMapa(cuentasPorId, cuentaIdNumerico);
+        // Verificación crucial: la cuenta DEBE existir si llegó hasta aquí porque es esencial
         if (!cuentaActual) {
             return crearRespuestaError(`Inconsistencia: Cuenta con ID ${cuentaIdNumerico} no encontrada después de leer la tabla cuentas.`, { source: contexto });
         }
 
+        // --- 6. Iterar y Combinar (Enriquecer) ---
         const datosIntegrados = comunicadosFiltradosPorCuenta.map(comunicado => {
-            const datoGeneral = obtenerDesdeMapa(datosGeneralesPorComunicadoId, comunicado.id) || {};
+            // Busca el datoGeneral correspondiente
+            const datoGeneral = obtenerDesdeMapa(datosGeneralesPorComunicadoId, comunicado.id) || {}; // Objeto vacío si no se encuentra
+
+            // Busca las entidades relacionadas (estas pueden faltar si la tabla opcional no se leyó)
             const estado = obtenerDesdeMapa(estadosPorId, datoGeneral.idEstado) || {};
             const distrito = obtenerDesdeMapa(distritosPorId, datoGeneral.idDR) || {};
             const siniestro = obtenerDesdeMapa(siniestrosPorId, datoGeneral.idSiniestro) || {};
 
+            // Construir el objeto combinado final
             return {
                 id: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
                 idComunicado: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
                 idSustituido: parseNumeric(comunicado.idSustituido),
                 idCuenta: parseNumeric(cuentaActual.id) ?? cuentaIdNumerico,
-                cuenta: String(cuentaActual.cuenta || ''),
+                cuenta: String(cuentaActual.referencia || ''),
                 comunicado: String(comunicado.comunicado || ''),
                 status: comunicado.status ?? '',
                 idDatosGenerales: parseNumeric(datoGeneral.id),
@@ -453,20 +427,26 @@ function readComunicadosPorCuenta(idCuenta) {
                 estado: String(estado.estado || estado.nombre || ''),
                 idDistritoRiego: parseNumeric(datoGeneral.idDR),
                 distrito: String(distrito.distritoRiego || distrito.nombre || ''),
+                // idEmpresa: parseNumeric(datoGeneral.idEmpresa),
+                // empresa: String(empresa.razonSocial || empresa.nombre || ''),
                 fechaAsignacion: formatDateValue(datoGeneral.fechaAsignacion) || null,
                 idSiniestro: parseNumeric(datoGeneral.idSiniestro),
                 siniestro: String(siniestro.siniestro || siniestro.nombre || ''),
                 fenomeno: String(siniestro.fenomeno || ''),
                 fondo: String(siniestro.fondo || ''),
                 fi: String(siniestro.fi || '')
+                // ... añade aquí datos de otras tablas opcionales ...
             };
-        }).sort((a, b) => {
+        }).sort((a, b) => { // Ordenar al final
             const nombreA = String(a.comunicado || '').toLowerCase();
             const nombreB = String(b.comunicado || '').toLowerCase();
             return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
         });
 
         const datosSanitizados = JSON.parse(JSON.stringify(datosIntegrados));
+
+        console.log('readComunicadosPorCuenta: Completado', { cuentaId: cuentaIdNumerico, total: datosSanitizados.length });
+
         return {
             success: true,
             data: datosSanitizados,
@@ -475,117 +455,32 @@ function readComunicadosPorCuenta(idCuenta) {
 
     } catch (error) {
         console.error('Error catastrófico en readComunicadosPorCuenta:', error);
+        // Asegúrate que tu función 'crearRespuestaError' maneje bien el caso donde idCuenta podría no ser numérico aquí
         return crearRespuestaError(`Error inesperado al leer comunicados: ${error.message}`, {
             source: contexto,
             error,
-            details: { idCuenta: idCuenta }
+            details: { idCuenta: idCuenta } // Usar el id original en el log de error
         });
     }
+
+    // Salvaguarda en caso de que se alcance un estado no contemplado.
+    console.warn('readComunicadosPorCuenta: se alcanzó el final sin generar respuesta explícita.', {
+        idCuenta: idCuenta
+    });
+    return crearRespuestaError('No se pudo generar la respuesta de comunicados.', {
+        source: contexto,
+        details: { idCuenta: idCuenta }
+    });
 }
 
 /**
- * === LISTAR TODOS LOS COMUNICADOS ===
- * Devuelve todos los comunicados enriquecidos del sistema.
+ * Enriquece un comunicado con datos relacionados
+ * @param {Object} comunicado - Comunicado base
+ * @return {Object} Comunicado enriquecido
  */
-function readAllComunicados() {
-    const contexto = 'readAllComunicados';
-    console.log('readAllComunicados: Iniciando lectura de todos los comunicados');
-
-    try {
-        const tablasAEvaluar = {
-            comunicados: { response: readAllRows('comunicados'), essential: true },
-            cuentas: { response: readAllRows('cuentas'), essential: true },
-            datosGenerales: { response: readAllRows('datosGenerales'), essential: true },
-            estados: { response: readAllRows('estados'), essential: false },
-            distritosRiego: { response: readAllRows('distritosRiego'), essential: false },
-            siniestros: { response: readAllRows('siniestros'), essential: false },
-            empresas: { response: readAllRows('empresas'), essential: false }
-        };
-
-        const datosListas = {};
-        for (const [nombreTabla, resultado] of Object.entries(tablasAEvaluar)) {
-            if (!resultado.response || !resultado.response.success) {
-                if (resultado.essential) {
-                    return propagarRespuestaError(contexto, resultado.response, {
-                        message: `Error crítico al leer la tabla esencial '${nombreTabla}': ${resultado.response?.message}`
-                    });
-                } else {
-                    console.warn(`readAllComunicados: No se pudo leer tabla opcional '${nombreTabla}'.`);
-                    datosListas[nombreTabla] = [];
-                }
-            } else {
-                datosListas[nombreTabla] = resultado.response.data || [];
-            }
-        }
-
-        const parseNumeric = (value) => {
-            const numeric = Number(value);
-            return Number.isFinite(numeric) ? numeric : null;
-        };
-        const timeZone = (typeof Session !== 'undefined' && Session.getScriptTimeZone) ? Session.getScriptTimeZone() : 'UTC';
-        const formatDateValue = (value) => {
-            if (value instanceof Date && !Number.isNaN(value.getTime?.())) {
-                try { return Utilities.formatDate(value, timeZone, 'yyyy-MM-dd'); }
-                catch (e) { return String(value); }
-            }
-            return value === null || value === undefined ? '' : String(value);
-        };
-
-        const cuentasPorId = mapeoPorCampo(datosListas.cuentas || [], 'id');
-        const datosGeneralesPorComunicadoId = mapeoPorCampo(datosListas.datosGenerales || [], 'idComunicado');
-        const estadosPorId = mapeoPorCampo(datosListas.estados || [], 'id');
-        const distritosPorId = mapeoPorCampo(datosListas.distritosRiego || [], 'id');
-        const siniestrosPorId = mapeoPorCampo(datosListas.siniestros || [], 'id');
-
-        const todosComunicados = (datosListas.comunicados || []).map(comunicado => {
-            const datoGeneral = obtenerDesdeMapa(datosGeneralesPorComunicadoId, comunicado.id) || {};
-            const cuenta = obtenerDesdeMapa(cuentasPorId, comunicado.idCuenta) || {};
-            const estado = obtenerDesdeMapa(estadosPorId, datoGeneral.idEstado) || {};
-            const distrito = obtenerDesdeMapa(distritosPorId, datoGeneral.idDR) || {};
-            const siniestro = obtenerDesdeMapa(siniestrosPorId, datoGeneral.idSiniestro) || {};
-
-            return {
-                id: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
-                idComunicado: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
-                idCuenta: parseNumeric(comunicado.idCuenta),
-                cuenta: String(cuenta.cuenta || 'Cuenta Desconocida'),
-                comunicado: String(comunicado.comunicado || ''),
-                status: comunicado.status ?? '',
-                descripcion: String(datoGeneral.descripcion || ''),
-                fecha: formatDateValue(datoGeneral.fecha),
-                estado: String(estado.estado || estado.nombre || ''),
-                distrito: String(distrito.distritoRiego || distrito.nombre || ''),
-                siniestro: String(siniestro.siniestro || siniestro.nombre || ''),
-                fenomeno: String(siniestro.fenomeno || ''),
-                fondo: String(siniestro.fondo || ''),
-                fi: String(siniestro.fi || '')
-            };
-        }).sort((a, b) => {
-            const fechaA = a.fecha || '';
-            const fechaB = b.fecha || '';
-            return fechaB.localeCompare(fechaA) || a.cuenta.localeCompare(b.cuenta);
-        });
-
-        console.log('readAllComunicados: Completado', { total: todosComunicados.length });
-
-        return {
-            success: true,
-            data: todosComunicados,
-            message: 'Todos los comunicados recuperados exitosamente'
-        };
-    } catch (error) {
-        console.error('Error en readAllComunicados:', error);
-        return crearRespuestaError(`Error al leer todos los comunicados: ${error.message}`, { source: contexto, error });
-    }
-}
-
 /**
  * === ENRIQUECER COMUNICADO ===
  * Adjunta catálogos, empresa, aseguradora y presupuesto a un comunicado
- */
-/**
- * === ENRIQUECER COMUNICADO ===
- * Adjunta catálogos, empresa, aseguradora, presupuesto y datos extendidos a un comunicado
  */
 function enriquecerComunicado(comunicado) {
     try {
@@ -596,11 +491,64 @@ function enriquecerComunicado(comunicado) {
                 comunicadoId: comunicado.id,
                 message: datosGeneralesResult.message
             });
-            return { ...comunicado, datosGenerales: null, error: datosGeneralesResult.message };
+            return {
+                id: comunicado.id,
+                idCuenta: comunicado.idCuenta,
+                comunicado: comunicado.comunicado,
+                status: comunicado.status,
+                idSustituido: comunicado.idSustituido || null,
+                datosGenerales: null,
+                descripcion: '',
+                fecha: '',
+                fechaAsignacion: '',
+                estado: null,
+                estadoNombre: '',
+                distrito: null,
+                distritoNombre: '',
+                siniestro: null,
+                siniestroNombre: '',
+                actualizacionVigente: null,
+                empresa: null,
+                empresaNombre: '',
+                aseguradora: null,
+                aseguradoraNombre: '',
+                presupuestoVigente: null,
+                presupuestoTotal: null,
+                presupuestoDetalles: [],
+                error: datosGeneralesResult.message || 'No fue posible obtener datos generales.'
+            };
         }
 
         const datosGenerales = datosGeneralesResult.data;
-        if (!datosGenerales) return { ...comunicado, datosGenerales: null };
+
+        if (!datosGenerales) {
+            return {
+                id: comunicado.id,
+                idCuenta: comunicado.idCuenta,
+                comunicado: comunicado.comunicado,
+                status: comunicado.status,
+                idSustituido: comunicado.idSustituido || null,
+                datosGenerales: null,
+                descripcion: '',
+                fecha: '',
+                fechaAsignacion: '',
+                estado: null,
+                estadoNombre: '',
+                distrito: null,
+                distritoNombre: '',
+                siniestro: null,
+                siniestroNombre: '',
+                actualizacionVigente: null,
+                empresa: null,
+                empresaNombre: '',
+                aseguradora: null,
+                aseguradoraNombre: '',
+                presupuestoVigente: null,
+                presupuestoTotal: null,
+                presupuestoDetalles: [],
+                error: 'El comunicado no tiene datos generales asociados.'
+            };
+        }
 
         // Leer catálogos
         const estadoResult = buscarPorId('estados', datosGenerales.idEstado);
@@ -611,28 +559,6 @@ function enriquecerComunicado(comunicado) {
 
         const siniestroResult = buscarPorId('siniestros', datosGenerales.idSiniestro);
         const siniestro = siniestroResult.success ? siniestroResult.data : null;
-
-        // Buscar cuenta asociada
-        const cuentaResult = buscarPorId('cuentas', comunicado.idCuenta);
-        const cuentaObj = cuentaResult.success ? cuentaResult.data : null;
-
-        // Buscar AJUSTADOR desde la CUENTA (con protección robusta)
-        let ajustador = null;
-        if (cuentaObj && cuentaObj.idAjustador) {
-            // Convertir a String para comparación segura
-            const ajustadorResult = buscarPorId('ajustadores', String(cuentaObj.idAjustador));
-            if (ajustadorResult.success && ajustadorResult.data) {
-                ajustador = {
-                    id: ajustadorResult.data.id,
-                    nombre: ajustadorResult.data.nombreAjustador || ajustadorResult.data.nombre || 'Desconocido',
-                    alias: ajustadorResult.data.nombre || ''
-                };
-            }
-        }
-        // Fallback si no se encontró ajustador
-        if (!ajustador) {
-            ajustador = { id: null, nombre: 'Sin Ajustador Asignado', alias: '' };
-        }
 
         // Leer actualización vigente
         let actualizacionVigente = null;
@@ -645,14 +571,11 @@ function enriquecerComunicado(comunicado) {
             actualizacionVigente = actualizacionResult.success ? actualizacionResult.data : null;
 
             if (actualizacionVigente) {
-                if (actualizacionVigente.idEmpresa) {
-                    const empresaResult = buscarPorId('empresas', actualizacionVigente.idEmpresa);
-                    empresaActual = empresaResult.success ? empresaResult.data : null;
-                }
-                if (actualizacionVigente.idAseguradora) {
-                    const aseguradoraResult = buscarPorId('aseguradoras', actualizacionVigente.idAseguradora);
-                    aseguradoraActual = aseguradoraResult.success ? aseguradoraResult.data : null;
-                }
+                const empresaResult = buscarPorId('empresas', actualizacionVigente.idEmpresa);
+                empresaActual = empresaResult.success ? empresaResult.data : null;
+
+                const aseguradoraResult = buscarPorId('aseguradoras', actualizacionVigente.idAseguradora);
+                aseguradoraActual = aseguradoraResult.success ? aseguradoraResult.data : null;
 
                 // Buscar presupuesto vigente
                 const presupuestosResponse = readAllRows('presupuestos');
@@ -677,40 +600,6 @@ function enriquecerComunicado(comunicado) {
             }
         }
 
-        // --- NUEVOS DATOS ---
-        // Equipo
-        const equipoResponse = readAllRows('equipo');
-        const equipo = equipoResponse.success ? equipoResponse.data.filter(e => String(e.idComunicado) === String(comunicado.id)) : [];
-
-        // Financiero
-        const financieroResponse = readAllRows('financiero');
-        const financieroItems = financieroResponse.success ? financieroResponse.data.filter(f => String(f.idComunicado) === String(comunicado.id)) : [];
-        const estimaciones = financieroItems.filter(f => f.tipo === 'estimacion');
-        const facturas = financieroItems.filter(f => f.tipo === 'factura');
-
-        // Tickets
-        const ticketsResponse = readAllRows('tickets');
-        const tickets = ticketsResponse.success ? ticketsResponse.data.filter(t => String(t.idComunicado) === String(comunicado.id)) : [];
-
-        // --- ACTUALIZACIONES DE PRESUPUESTO ---
-        // Cargar desde la tabla Actualizaciones (Origen, A, B, etc.)
-        const actualizacionesPresResponse = readAllRows('actualizaciones');
-        let actualizacionesPresupuesto = [];
-        if (actualizacionesPresResponse.success && actualizacionesPresResponse.data) {
-            actualizacionesPresupuesto = actualizacionesPresResponse.data
-                .filter(a => String(a.idComunicado) === String(comunicado.id))
-                .sort((a, b) => Number(a.consecutivo) - Number(b.consecutivo))
-                .map(a => ({
-                    id: a.id,
-                    revision: a.esOrigen == 1 ? 'Origen' : (a.revision || ''),
-                    fecha: a.fecha,
-                    monto: a.monto || 0,
-                    montoCapturado: a.montoCapturado || 0,
-                    esOrigen: a.esOrigen == 1,
-                    idPresupuesto: a.idPresupuesto || null
-                }));
-        }
-
         // Construir objeto enriquecido
         return {
             // Datos del comunicado
@@ -719,20 +608,6 @@ function enriquecerComunicado(comunicado) {
             comunicado: comunicado.comunicado,
             status: comunicado.status,
             idSustituido: comunicado.idSustituido || null,
-
-            // Relaciones Enriquecidas
-            cuenta: cuentaObj ? {
-                id: cuentaObj.id,
-                referencia: cuentaObj.referencia || cuentaObj.cuenta || '',
-                nombre: cuentaObj.referencia || cuentaObj.cuenta || ''
-            } : { id: null, referencia: 'Sin Referencia', nombre: '' },
-
-            // Ajustador (siempre objeto válido por el fallback anterior)
-            ajustador: ajustador,
-
-            // Mapeos planos para facilitar binding
-            referencia: cuentaObj ? (cuentaObj.referencia || cuentaObj.cuenta || '') : 'Sin Referencia',
-            ajustadorNombre: ajustador.nombre,
 
             // Datos generales
             idDatosGenerales: datosGenerales.id,
@@ -743,24 +618,21 @@ function enriquecerComunicado(comunicado) {
             // Catálogos
             idEstado: datosGenerales.idEstado,
             estado: estado,
-            estadoNombre: estado ? (estado.estado || estado.nombre) : '',
+            estadoNombre: estado ? estado.estado : '',
 
             idDistritoRiego: datosGenerales.idDR,
             distrito: distrito,
-            distritoNombre: distrito ? (distrito.distritoRiego || distrito.nombre) : '',
+            distritoNombre: distrito ? distrito.distritoRiego : '',
 
             idSiniestro: datosGenerales.idSiniestro,
             siniestro: siniestro,
-            siniestroNombre: siniestro ? (siniestro.siniestro || siniestro.nombre) : '',
+            siniestroNombre: siniestro ? siniestro.siniestro : '',
             siniestroDetalle: siniestro ? {
                 codigo: siniestro.siniestro,
                 fenomeno: siniestro.fenomeno || '',
                 fondo: siniestro.fondo || '',
                 fi: siniestro.fi || ''
             } : null,
-
-            // Mantener campos legacy si el frontend los usa (aunque ajustador ya va arriba)
-            idAjustador: ajustador ? ajustador.id : null,
 
             // Actualización y empresa
             idActualizacion: datosGenerales.idActualizacion,
@@ -774,18 +646,10 @@ function enriquecerComunicado(comunicado) {
             aseguradora: aseguradoraActual,
             aseguradoraNombre: aseguradoraActual ? aseguradoraActual.descripcion : '',
 
-            // Presupuesto (Actualizaciones: Origen, A, B, etc.)
+            // Presupuesto
             presupuestoVigente: presupuestoVigente,
             presupuestoTotal: presupuestoVigente ? presupuestoVigente.total : null,
-            presupuesto: actualizacionesPresupuesto, // Array de actualizaciones (Origen, A, B...)
-
-            // Nuevos Tabs
-            equipo: equipo,
-            financiero: {
-                estimaciones: estimaciones,
-                facturas: facturas
-            },
-            tickets: tickets,
+            presupuestoDetalles: presupuestoVigente ? (presupuestoVigente.detalles || []) : [],
 
             // Objeto completo de datos generales
             datosGenerales: datosGenerales
@@ -802,8 +666,14 @@ function enriquecerComunicado(comunicado) {
 }
 
 /**
+ * Actualiza un comunicado
+ * @param {string|number} id - ID del comunicado
+ * @param {Object} updates - Campos a actualizar
+ * @return {Object} {success, message}
+ */
+/**
  * === ACTUALIZAR COMUNICADO ===
- * Actualiza los datos de un comunicado existente
+ * Modifica campos puntuales de un comunicado existente
  */
 function updateComunicado(id, updates) {
     const contexto = 'updateComunicado';
@@ -813,140 +683,81 @@ function updateComunicado(id, updates) {
             return crearRespuestaError('Se requiere el ID del comunicado', { source: contexto });
         }
 
-        // 1. Validar existencia
         const comunicadoResult = buscarPorId('comunicados', comunicadoId);
         if (!comunicadoResult.success) {
             return propagarRespuestaError(contexto, comunicadoResult);
         }
 
-        const datosGeneralesResult = buscarPorCampo('datosGenerales', 'idComunicado', comunicadoId);
-        if (!datosGeneralesResult.success) {
-            return propagarRespuestaError(contexto, datosGeneralesResult);
-        }
-        const datosGenerales = datosGeneralesResult.data;
-
-        // 2. Procesar actualizaciones
-        // Actualizar tabla 'comunicados'
-        if (updates.comunicado) {
-            const updateComResult = actualizarRegistro('comunicados', comunicadoId, {
-                comunicado: updates.comunicado
-            });
-            if (!updateComResult.success) {
-                return propagarRespuestaError(contexto, updateComResult);
-            }
+        if (updates.comunicado && String(updates.comunicado).length > 15) {
+            return crearRespuestaError('El comunicado no puede exceder 15 caracteres', { source: contexto });
         }
 
-        // Actualizar tabla 'datosGenerales'
-        const updatesDatosGenerales = {};
-        if (updates.descripcion) updatesDatosGenerales.descripcion = updates.descripcion;
-        if (updates.fecha) updatesDatosGenerales.fecha = updates.fecha;
-        if (updates.idEstado) updatesDatosGenerales.idEstado = updates.idEstado;
-        // if (updates.idAjustador) ... ELIMINADO de aquí porque va en Cuentas
-
-        // Si hay actualización de Ajustador, actualizar la tabla CUENTAS
-        if (updates.idAjustador) {
-            // Necesitamos saber el idCuenta
-            const comunicadoActualResult = readRow('comunicados', comunicadoId);
-            if (comunicadoActualResult.success && comunicadoActualResult.data) {
-                const idCuenta = comunicadoActualResult.data.idCuenta;
-                if (idCuenta) {
-                    actualizarRegistro('cuentas', idCuenta, { idAjustador: updates.idAjustador });
-                }
-            }
-        }
-
-        // Manejo de catálogos (Distrito y Siniestro)
-        if (updates.distrito) {
-            const distritoResult = ensureCatalogRecord('distritosRiego', { distritoRiego: updates.distrito });
-            if (distritoResult.success && distritoResult.data && distritoResult.data.id) {
-                updatesDatosGenerales.idDR = distritoResult.data.id;
-            }
-        }
-
-        if (updates.siniestro) {
-            const siniestroResult = ensureCatalogRecord('siniestros', { siniestro: updates.siniestro });
-            if (siniestroResult.success && siniestroResult.data && siniestroResult.data.id) {
-                updatesDatosGenerales.idSiniestro = siniestroResult.data.id;
-            }
-        }
-
-        if (Object.keys(updatesDatosGenerales).length > 0) {
-            const updateDGResult = actualizarRegistro('datosGenerales', datosGenerales.id, updatesDatosGenerales);
-            if (!updateDGResult.success) {
-                return propagarRespuestaError(contexto, updateDGResult);
-            }
-        }
-
-        // 3. Actualizar Equipo
-        if (updates.equipo) {
-            _syncChildTable('equipo', 'idComunicado', comunicadoId, updates.equipo);
-        }
-
-        // 4. Actualizar Financiero
-        if (updates.financiero) {
-            const estimaciones = (updates.financiero.estimaciones || []).map(e => ({ ...e, tipo: 'estimacion' }));
-            const facturas = (updates.financiero.facturas || []).map(f => ({ ...f, tipo: 'factura' }));
-            const allFinanciero = [...estimaciones, ...facturas];
-            _syncChildTable('financiero', 'idComunicado', comunicadoId, allFinanciero);
-        }
-
-        // 5. Actualizar Tickets
-        if (updates.tickets) {
-            _syncChildTable('tickets', 'idComunicado', comunicadoId, updates.tickets);
-        }
-
-        // 6. Actualizar Presupuesto
-        if (updates.presupuesto) {
-            _handlePresupuestoUpdate(comunicadoId, datosGenerales, updates.presupuesto);
-        }
-
-        return {
-            success: true,
-            message: 'Comunicado actualizado correctamente'
-        };
+        const response = actualizarRegistro('comunicados', comunicadoId, updates);
+        return response;
 
     } catch (error) {
         console.error('Error en updateComunicado:', error);
         return crearRespuestaError(`Error al actualizar comunicado: ${error.message}`, {
             source: contexto,
             error,
-            details: { id }
+            details: { id, updates }
         });
     }
 }
 
-function getComunicadoCompleto(id) {
-    const contexto = 'getComunicadoCompleto';
-    console.log(`[${contexto}] Iniciando solicitud para ID: ${id}`);
-
+/**
+ * Elimina un comunicado y sus datos relacionados
+ * @param {string|number} id - ID del comunicado
+ * @return {Object} {success, message}
+ */
+/**
+ * === ELIMINAR COMUNICADO ===
+ * Borra un comunicado junto con sus datos generales vinculados
+ */
+function deleteComunicado(id) {
+    const contexto = 'deleteComunicado';
     try {
         const comunicadoId = String(id || '').trim();
         if (!comunicadoId) {
-            console.warn(`[${contexto}] ID no proporcionado.`);
             return crearRespuestaError('Se requiere el ID del comunicado', { source: contexto });
         }
 
         const comunicadoResult = buscarPorId('comunicados', comunicadoId);
         if (!comunicadoResult.success) {
-            console.warn(`[${contexto}] No se encontró el comunicado con ID: ${comunicadoId}`);
             return propagarRespuestaError(contexto, comunicadoResult);
         }
 
-        const comunicadoEnriquecido = enriquecerComunicado(comunicadoResult.data);
+        const comunicado = comunicadoResult.data;
 
-        const response = {
+        const datosGeneralesResult = buscarPorCampo('datosGenerales', 'idComunicado', comunicadoId);
+        if (!datosGeneralesResult.success) {
+            return propagarRespuestaError(contexto, datosGeneralesResult);
+        }
+
+        const datosGenerales = datosGeneralesResult.data;
+
+        if (datosGenerales) {
+            const deleteDataResponse = eliminarRegistro('datosGenerales', datosGenerales.id);
+            if (!deleteDataResponse.success) {
+                return propagarRespuestaError(contexto, deleteDataResponse, {
+                    message: `Error al eliminar datos generales: ${deleteDataResponse.message}`
+                });
+            }
+        }
+
+        const response = eliminarRegistro('comunicados', comunicadoId);
+        if (!response.success) {
+            return propagarRespuestaError(contexto, response);
+        }
+
+        return {
             success: true,
-            data: comunicadoEnriquecido
+            message: `Comunicado "${comunicado.comunicado}" eliminado correctamente`
         };
 
-        const sanitizedResponse = JSON.parse(JSON.stringify(response));
-        console.log(`[${contexto}] Respuesta generada exitosamente para ID: ${comunicadoId}`);
-
-        return sanitizedResponse;
-
     } catch (error) {
-        console.error(`Error en ${contexto}:`, error);
-        return crearRespuestaError(`Error al obtener comunicado completo: ${error.message}`, {
+        console.error('Error en deleteComunicado:', error);
+        return crearRespuestaError(`Error al eliminar comunicado: ${error.message}`, {
             source: contexto,
             error,
             details: { id }
@@ -955,160 +766,77 @@ function getComunicadoCompleto(id) {
 }
 
 /**
- * Sincroniza una tabla hija (borra anteriores e inserta nuevos)
+ * Obtiene un comunicado completo con todos sus datos
+ * @param {string|number} idComunicado - ID del comunicado
+ * @return {Object} {success, data}
  */
-function _syncChildTable(tableName, foreignKeyField, foreignKeyValue, dataArray) {
-    try {
-        // 1. Leer todos
-        const response = readAllRows(tableName);
-        if (response.success && response.data) {
-            // 2. Filtrar los que pertenecen a este padre
-            const toDelete = response.data.filter(row => String(row[foreignKeyField]) === String(foreignKeyValue));
-
-            // 3. Borrar
-            toDelete.forEach(row => {
-                eliminarRegistro(tableName, row.id);
-            });
-        }
-
-        // 4. Insertar nuevos
-        dataArray.forEach(item => {
-            const newItem = { ...item };
-            newItem[foreignKeyField] = foreignKeyValue;
-            delete newItem.id; // Asegurar que se genere nuevo ID
-            insertarRegistro(tableName, newItem);
-        });
-    } catch (e) {
-        console.error(`Error syncing table ${tableName}:`, e);
-        throw e;
-    }
-}
-
 /**
- * Maneja la actualización del presupuesto
+ * === OBTENER COMUNICADO COMPLETO ===
+ * Recupera un comunicado con toda su información relacionada
  */
-function _handlePresupuestoUpdate(comunicadoId, datosGenerales, presupuestoItems) {
-    let idActualizacion = datosGenerales.idActualizacion;
-
-    // 1. Si no hay actualización, crear una "Inicial"
-    if (!idActualizacion) {
-        const nuevaActualizacion = {
-            idComunicado: comunicadoId,
-            fecha: new Date(),
-            tipo: 'Inicial',
-            vigente: 1
-        };
-        const actResult = insertarRegistro('actualizaciones', nuevaActualizacion);
-        if (actResult.success) {
-            idActualizacion = actResult.data.id;
-            // Actualizar datosGenerales
-            actualizarRegistro('datosGenerales', datosGenerales.id, { idActualizacion: idActualizacion });
-        } else {
-            throw new Error('No se pudo crear actualización para el presupuesto: ' + actResult.message);
-        }
-    }
-
-    // 2. Buscar presupuesto vigente para esta actualización
-    const presupuestosResponse = readAllRows('presupuestos');
-    let presupuesto = null;
-
-    if (presupuestosResponse.success) {
-        presupuesto = presupuestosResponse.data.find(p =>
-            String(p.idActualizacion) === String(idActualizacion) && Number(p.vigente) === 1
-        );
-    }
-
-    const total = presupuestoItems.reduce((sum, item) => sum + (Number(item.cantidad) * Number(item.precioUnitario)), 0);
-
-    let idPresupuesto;
-
-    if (presupuesto) {
-        // Actualizar total
-        actualizarRegistro('presupuestos', presupuesto.id, { total: total });
-        idPresupuesto = presupuesto.id;
-    } else {
-        // Crear nuevo presupuesto
-        const nuevoPresupuesto = {
-            idActualizacion: idActualizacion,
-            fecha: new Date(),
-            total: total,
-            vigente: 1,
-            status: 'Activo'
-        };
-        const presResult = insertarRegistro('presupuestos', nuevoPresupuesto);
-        if (presResult.success) {
-            idPresupuesto = presResult.data.id;
-        } else {
-            throw new Error('No se pudo crear presupuesto header: ' + presResult.message);
-        }
-    }
-
-    // 3. Sincronizar detalles
-    _syncChildTable('detallePresupuesto', 'idPresupuesto', idPresupuesto, presupuestoItems);
-}
-
-/**
- * Maneja la sincronización de actualizaciones de presupuesto.
- * Cada actualización (Origen, A, B, etc.) se guarda como un registro en la tabla Actualizaciones.
- * 
- * @param {number} comunicadoId - ID del comunicado
- * @param {Object} datosGenerales - Datos generales del comunicado
- * @param {Array} presupuestoItems - Array de actualizaciones de presupuesto desde el frontend
- */
-function _handlePresupuestoUpdate(comunicadoId, datosGenerales, presupuestoItems) {
-    if (!presupuestoItems || !Array.isArray(presupuestoItems)) {
-        return;
-    }
-
+function getComunicadoCompleto(idComunicado) {
+    const contexto = 'getComunicadoCompleto';
     try {
-        // 1. Obtener actualizaciones existentes para este comunicado
-        const allActualizaciones = readAllRows('actualizaciones');
-        const existentes = (allActualizaciones.success && allActualizaciones.data)
-            ? allActualizaciones.data.filter(a => String(a.idComunicado) === String(comunicadoId))
-            : [];
+        const comunicadoId = String(idComunicado || '').trim();
+        if (!comunicadoId) {
+            return crearRespuestaError('Se requiere el ID del comunicado', { source: contexto });
+        }
 
-        // 2. Mapear por consecutivo para identificar actualizaciones vs inserciones
-        const existentesMap = new Map();
-        existentes.forEach(e => {
-            existentesMap.set(Number(e.consecutivo), e);
-        });
+        const comunicadoResult = buscarPorId('comunicados', comunicadoId);
+        if (!comunicadoResult.success) {
+            return propagarRespuestaError(contexto, comunicadoResult);
+        }
 
-        // 3. Procesar cada item del frontend
-        presupuestoItems.forEach((item, index) => {
-            const consecutivo = index + 1; // 1-based
-            const esOrigen = index === 0;
-            const revision = esOrigen ? 'Origen' : (item.revision || '');
+        const comunicado = comunicadoResult.data;
+        const comunicadoEnriquecido = enriquecerComunicado(comunicado);
 
-            const registro = {
-                idComunicado: comunicadoId,
-                consecutivo: consecutivo,
-                esOrigen: esOrigen ? 1 : 0,
-                revision: revision,
-                monto: parseFloat(item.monto) || 0,
-                montoCapturado: parseFloat(item.montoCapturado) || 0,
-                idPresupuesto: item.idPresupuesto || null,
-                fecha: item.fecha || new Date().toISOString()
-            };
-
-            const existente = existentesMap.get(consecutivo);
-
-            if (existente) {
-                // Actualizar registro existente
-                actualizarRegistro('actualizaciones', existente.id, registro);
-                existentesMap.delete(consecutivo); // Marcar como procesado
-            } else {
-                // Insertar nuevo registro
-                insertarRegistro('actualizaciones', registro);
-            }
-        });
-
-        // 4. Eliminar actualizaciones que ya no existen en el frontend
-        existentesMap.forEach((antiguo, consecutivo) => {
-            eliminarRegistro('actualizaciones', antiguo.id);
-        });
+        return {
+            success: true,
+            data: comunicadoEnriquecido
+        };
 
     } catch (error) {
-        console.error('Error en _handlePresupuestoUpdate:', error);
-        throw error;
+        console.error('Error en getComunicadoCompleto:', error);
+        return crearRespuestaError(`Error al obtener comunicado: ${error.message}`, {
+            source: contexto,
+            error,
+            details: { idComunicado }
+        });
     }
+}
+
+/**
+ * Lee todos los comunicados
+ * @return {Object} {success, data}
+ */
+/**
+ * === LISTAR TODOS LOS COMUNICADOS ===
+ * Retorna todos los comunicados registrados
+ */
+function readComunicados() {
+    const contexto = 'readComunicados';
+    try {
+        const response = readAllRows('comunicados');
+        return response;
+    } catch (error) {
+        console.error('Error en readComunicados:', error);
+        return crearRespuestaError(`Error al leer comunicados: ${error.message}`, {
+            source: contexto,
+            error
+        });
+    }
+}
+
+/**
+ * Función de depuración simple para inspeccionar un valor.
+ * Muestra el valor, su tipo y si es un array.
+ * @param {*} inputData - El valor a depurar.
+ */
+function debugFunction() {
+    const inputData = [1]
+    console.log("--- DEBUG START ---"); // Marca el inicio en la consola
+    console.log(typeof (inputData))
+    const resultado = readComunicadosPorCuenta(inputData)
+    console.log(resultado)
+    console.log("--- DEBUG END ---"); // Marca el fin en la consola
 }

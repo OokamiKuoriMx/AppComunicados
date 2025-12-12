@@ -108,12 +108,32 @@ function obtenerDatosTabla(nombreHoja) {
  * @returns {object} Objeto normalizado (ej: {id: 1, cuenta: '...'}).
  */
 function filaAObjeto(def, encabezados, fila) {
+    // Mapa para relacionar headers normalizados con sus claves lógicas
     const headerMap = {};
-    for (const key in def.headers) {
-        def.headers[key].forEach(headerVariant => {
-            headerMap[normalizarTexto(headerVariant)] = key;
+
+    // --- INICIO PATCH DE COMPATIBILIDAD ---
+    // Detectamos si 'def.headers' es un Array (viejo) o un Objeto (nuevo)
+    if (Array.isArray(def.headers)) {
+        // Modo Legado: headers = ['id', 'nombre', ...]
+        def.headers.forEach(headerName => {
+            // En modo legado, la clave y el header son lomos
+            headerMap[normalizarTexto(headerName)] = headerName;
         });
+    } else {
+        // Modo Nuevo: headers = { id: ['id', 'ID'], ... }
+        for (const key in def.headers) {
+            const val = def.headers[key];
+            if (Array.isArray(val)) {
+                val.forEach(headerVariant => {
+                    headerMap[normalizarTexto(headerVariant)] = key;
+                });
+            } else if (val) {
+                // Protección contra definiciones mal formadas { id: 'id' }
+                headerMap[normalizarTexto(val)] = key;
+            }
+        }
     }
+    // --- FIN PATCH DE COMPATIBILIDAD ---
 
     const objetoFila = {};
     encabezados.forEach((encabezado, i) => {
