@@ -616,11 +616,22 @@ function enriquecerComunicado(comunicado) {
         const cuentaResult = buscarPorId('cuentas', comunicado.idCuenta);
         const cuentaObj = cuentaResult.success ? cuentaResult.data : null;
 
-        // MOVIDO: Leer ajustador desde la CUENTA
+        // Buscar AJUSTADOR desde la CUENTA (con protección robusta)
         let ajustador = null;
         if (cuentaObj && cuentaObj.idAjustador) {
-            const ajustadorResult = buscarPorId('ajustadores', cuentaObj.idAjustador);
-            ajustador = ajustadorResult.success ? ajustadorResult.data : null;
+            // Convertir a String para comparación segura
+            const ajustadorResult = buscarPorId('ajustadores', String(cuentaObj.idAjustador));
+            if (ajustadorResult.success && ajustadorResult.data) {
+                ajustador = {
+                    id: ajustadorResult.data.id,
+                    nombre: ajustadorResult.data.nombreAjustador || ajustadorResult.data.nombre || 'Desconocido',
+                    alias: ajustadorResult.data.nombre || ''
+                };
+            }
+        }
+        // Fallback si no se encontró ajustador
+        if (!ajustador) {
+            ajustador = { id: null, nombre: 'Sin Ajustador Asignado', alias: '' };
         }
 
         // Leer actualización vigente
@@ -712,17 +723,16 @@ function enriquecerComunicado(comunicado) {
             // Relaciones Enriquecidas
             cuenta: cuentaObj ? {
                 id: cuentaObj.id,
-                referencia: cuentaObj.referencia || cuentaObj.cuenta,
-                nombre: cuentaObj.referencia || cuentaObj.cuenta
-            } : null,
-            ajustador: ajustador ? {
-                id: ajustador.id,
-                nombre: ajustador.nombreAjustador || ajustador.nombre
-            } : null,
+                referencia: cuentaObj.referencia || cuentaObj.cuenta || '',
+                nombre: cuentaObj.referencia || cuentaObj.cuenta || ''
+            } : { id: null, referencia: 'Sin Referencia', nombre: '' },
+
+            // Ajustador (siempre objeto válido por el fallback anterior)
+            ajustador: ajustador,
 
             // Mapeos planos para facilitar binding
-            referencia: cuentaObj ? (cuentaObj.referencia || cuentaObj.cuenta || '') : '',
-            ajustadorNombre: ajustador ? (ajustador.nombreAjustador || ajustador.nombre || '') : 'Sin Ajustador',
+            referencia: cuentaObj ? (cuentaObj.referencia || cuentaObj.cuenta || '') : 'Sin Referencia',
+            ajustadorNombre: ajustador.nombre,
 
             // Datos generales
             idDatosGenerales: datosGenerales.id,
