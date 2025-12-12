@@ -7,6 +7,65 @@
  */
 
 /**
+ * Busca la clave lógica correspondiente a un header de la hoja.
+ * Compatible con formato legado (array) y nuevo (objeto con arrays de alias).
+ * @param {Object|Array} defHeaders - def.headers de TABLE_DEFINITIONS
+ * @param {string} header - nombre del header a buscar
+ * @returns {string|null} - la clave lógica o null si no se encuentra
+ */
+function buscarClavePorHeader(defHeaders, header) {
+    if (!defHeaders || !header) return null;
+
+    const normalizedHeader = normalizarTexto(header);
+
+    // Formato nuevo: headers es un objeto { clave: ['alias1', 'alias2'] }
+    if (!Array.isArray(defHeaders) && typeof defHeaders === 'object') {
+        for (const key in defHeaders) {
+            const aliases = defHeaders[key];
+            if (Array.isArray(aliases)) {
+                // { clave: ['alias1', 'alias2'] }
+                if (aliases.some(alias => normalizarTexto(alias) === normalizedHeader)) {
+                    return key;
+                }
+            } else if (typeof aliases === 'string') {
+                // { clave: 'alias' } - formato mal formado pero soportado
+                if (normalizarTexto(aliases) === normalizedHeader) {
+                    return key;
+                }
+            }
+        }
+    }
+
+    // Formato legado: headers es un array ['campo1', 'campo2']
+    if (Array.isArray(defHeaders)) {
+        const found = defHeaders.find(h => normalizarTexto(h) === normalizedHeader);
+        if (found) return found; // En modo legado, la clave es el mismo header
+    }
+
+    return null;
+}
+
+/**
+ * Obtiene los alias de un campo desde la definición de headers.
+ * @param {Object|Array} defHeaders - def.headers de TABLE_DEFINITIONS
+ * @param {string} campo - nombre lógico del campo
+ * @returns {string[]} - array de alias o array con el campo mismo si es legado
+ */
+function obtenerAliases(defHeaders, campo) {
+    if (!defHeaders || !campo) return [campo];
+
+    // Formato nuevo: headers es un objeto
+    if (!Array.isArray(defHeaders) && typeof defHeaders === 'object') {
+        const aliases = defHeaders[campo];
+        if (Array.isArray(aliases)) return aliases;
+        if (typeof aliases === 'string') return [aliases];
+    }
+
+    // Formato legado: el campo es su propio alias
+    return [campo];
+}
+
+/**
  * Crea un nuevo registro en la tabla especificada.
  * @param {string} nombreTabla La clave de la tabla en TABLE_DEFINITIONS (ej: 'cuentas').
  * @param {object} datos Objeto con los datos a insertar (ej: { cuenta: 'Nueva Cuenta' }).
@@ -64,7 +123,8 @@ function createRow(nombreTabla, datos) {
     }
 
     for (const campo of def.uniqueFields) {
-        const indiceCampoUnico = headers.findIndex(h => def.headers[campo]?.map(c => normalizarTexto(c)).includes(normalizarTexto(h)));
+        const aliases = obtenerAliases(def.headers, campo);
+        const indiceCampoUnico = headers.findIndex(h => aliases.some(alias => normalizarTexto(alias) === normalizarTexto(h)));
         if (indiceCampoUnico !== -1 && datos[campo]) {
             const existe = rows.some(fila => normalizarTexto(fila[indiceCampoUnico]) === normalizarTexto(datos[campo]));
             if (existe) {
@@ -77,7 +137,7 @@ function createRow(nombreTabla, datos) {
     }
 
     const nuevaFila = headers.map(header => {
-        const clave = Object.keys(def.headers).find(k => def.headers[k].map(c => normalizarTexto(c)).includes(normalizarTexto(header)));
+        const clave = buscarClavePorHeader(def.headers, header);
         return datos[clave] ?? '';
     });
 
@@ -165,7 +225,7 @@ function updateRow(nombreTabla, id, nuevosDatos) {
     }
 
     const filaActualizada = headers.map((header, i) => {
-        const clave = Object.keys(def.headers).find(k => def.headers[k].map(c => normalizarTexto(c)).includes(normalizarTexto(header)));
+        const clave = buscarClavePorHeader(def.headers, header);
         return nuevosDatos[clave] !== undefined ? nuevosDatos[clave] : rows[indiceFila][i];
     });
 
