@@ -2,30 +2,13 @@
     /**
      * Componente ComunicadoDetalle
      * Vista detallada y completa para la gestión de un comunicado individual.
-     * VERSIÓN: 2024-12-12 v3 - Reingeniería Financiera (Referencia + Ajustador + Modelo Estimaciones)
-     * 
-     * MEJORAS APLICADAS:
-     * 1. Reingeniería de conceptos: Cuenta -> Referencia + Ajustador
-     * 2. Modelo Financiero corregido con desglose de estimaciones
-     * 3. Formateo de moneda visual (comas de miles)
-     * 4. Validación de catálogos con confirmación bloqueante
+     * VERSIÓN: 2024-12-09 v2 - Bitácora de Presupuesto
      */
-    console.log('📦 ComunicadoDetalle.js cargado - Versión 2024-12-12 v3 (Reingeniería)');
+    console.log('📦 ComunicadoDetalle.js cargado - Versión 2024-12-09 v2');
     globalThis.ComunicadoDetalle = (() => {
         'use strict';
 
-        // ===== CONSTANTES DE CONFIGURACIÓN =====
-        const AJUSTADORES = {
-            'CTA': 'Charles Taylor Adjusting (CTA)',
-            'McLarens': 'McLarens México',
-            'Crawford': 'Crawford & Company',
-            'Seguritech': 'Seguritech Ajustadores',
-            'Otro': 'Otro'
-        };
-
-        const IVA_RATE = 0.16; // 16% IVA México
-
-        // ===== ESTADO LOCAL =====
+        // Estado local
         let state = {
             id: null,
             data: null,
@@ -37,63 +20,11 @@
         // Referencias DOM
         let dom = {};
 
-        // ===== UTILIDADES DE FORMATEO =====
-
         /**
-         * Formatea un número como moneda mexicana con comas de miles
-         * @param {number} value - Valor numérico
-         * @param {boolean} includeSymbol - Incluir símbolo $
-         * @returns {string} Valor formateado
+         * Inicializa el componente
          */
-        function _formatCurrency(value, includeSymbol = true) {
-            const num = parseFloat(value) || 0;
-            const formatted = num.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-            });
-            return includeSymbol ? `$${formatted}` : formatted;
-        }
-
-        /**
-         * Parsea un string de moneda a número
-         * @param {string} value - Valor con formato de moneda
-         * @returns {number} Valor numérico
-         */
-        function _parseCurrency(value) {
-            if (typeof value === 'number') return value;
-            if (!value) return 0;
-            // Remover $, comas y espacios
-            const cleaned = String(value).replace(/[$,\s]/g, '');
-            return parseFloat(cleaned) || 0;
-        }
-
-        /**
-         * Configura un input para mostrar formato de moneda visual
-         * @param {HTMLInputElement} input - El input a configurar
-         */
-        function _setupCurrencyInput(input) {
-            if (!input) return;
-
-            // Al perder foco: mostrar formateado
-            input.addEventListener('blur', function () {
-                const value = _parseCurrency(this.value);
-                if (value > 0) {
-                    this.value = _formatCurrency(value, false);
-                }
-            });
-
-            // Al ganar foco: mostrar número limpio
-            input.addEventListener('focus', function () {
-                const value = _parseCurrency(this.value);
-                this.value = value > 0 ? value.toString() : '';
-                this.select();
-            });
-        }
-
-        // ===== INICIALIZACIÓN =====
-
         async function init(container) {
-            console.log('Iniciando ComunicadoDetalle v3...');
+            console.log('Iniciando ComunicadoDetalle...');
 
             // 0. Mostrar loader INMEDIATAMENTE
             const loader = document.getElementById('app-loader');
@@ -132,15 +63,21 @@
 
         const mount = async (container) => init(container);
 
+        /**
+         * Carga el HTML
+         */
         async function _mount(container) {
             try {
+                // Limpiar contenedor completamente
                 container.innerHTML = '';
                 console.log('🧹 Contenedor limpiado');
 
+                // Intentar usar template cacheado globalmente primero
                 let templateContent = null;
                 if (globalThis.TEMPLATES && globalThis.TEMPLATES['comunicado_detalle']) {
                     templateContent = globalThis.TEMPLATES['comunicado_detalle'];
                 } else {
+                    // Fallback: pedirlo al servidor
                     console.warn('Template no encontrado en caché, solicitando al servidor...');
                     const html = await serverCall('getTemplates', ['comunicado_detalle']);
                     if (html && html.comunicado_detalle) {
@@ -168,11 +105,9 @@
             dom.btnVolver = document.getElementById('btn-volver-listado');
             dom.btnGuardar = document.getElementById('btn-guardar-todo');
 
-            // Inputs Generales - REFACTORIZADO
+            // Inputs Generales
             dom.genId = document.getElementById('gen-id');
-            dom.genReferencia = document.getElementById('gen-referencia'); // Antes: gen-cuenta
-            dom.genAjustador = document.getElementById('gen-ajustador');   // NUEVO
-            dom.genAjustadorOtro = document.getElementById('gen-ajustador-otro'); // NUEVO
+            dom.genCuenta = document.getElementById('gen-cuenta');
             dom.genFecha = document.getElementById('gen-fecha');
             dom.genComunicado = document.getElementById('gen-comunicado');
             dom.genDescripcion = document.getElementById('gen-descripcion');
@@ -187,9 +122,11 @@
             // Comboboxes (Listas y Avisos)
             dom.dropdownSiniestro = document.getElementById('dropdown-gen-siniestro-list');
             dom.avisoSiniestro = document.getElementById('aviso-gen-siniestro');
+            dom.datalistSiniestros = null; // Deprecado
 
             dom.dropdownDistrito = document.getElementById('dropdown-gen-distrito-list');
             dom.avisoDistrito = document.getElementById('aviso-gen-distrito');
+            dom.datalistDistritos = null; // Deprecado
 
             // Avisos Fenómeno/FI/Fondo
             dom.avisoFenomeno = document.getElementById('aviso-gen-fenomeno');
@@ -208,25 +145,14 @@
             dom.listaContratistas = document.getElementById('lista-contratistas');
             dom.listaSupervisores = document.getElementById('lista-supervisores');
 
-            // Financiero - REFACTORIZADO
+            // Financiero
             dom.btnAddEstimacion = document.getElementById('btn-add-estimacion');
+            dom.btnAddFactura = document.getElementById('btn-add-factura');
             dom.listaEstimaciones = document.getElementById('lista-estimaciones');
-
-            // Totales de estimaciones
-            dom.totalEjecutado = document.getElementById('total-ejecutado');
-            dom.totalAmortizacion = document.getElementById('total-amortizacion');
-            dom.totalSubtotal = document.getElementById('total-subtotal');
-            dom.totalIva = document.getElementById('total-iva');
-            dom.totalFacturado = document.getElementById('total-facturado');
-
-            // Resumen Financiero
+            dom.listaFacturas = document.getElementById('lista-facturas');
             dom.finAutorizado = document.getElementById('fin-autorizado');
             dom.finEjercido = document.getElementById('fin-ejercido');
             dom.finPorEjercer = document.getElementById('fin-por-ejercer');
-            dom.finFacturado = document.getElementById('fin-facturado');
-            dom.finPorcentaje = document.getElementById('fin-porcentaje');
-            dom.finProgressBar = document.getElementById('fin-progress-bar');
-            dom.finAjustadorInfo = document.getElementById('fin-ajustador-info');
 
             // Tickets
             dom.btnAddTicket = document.getElementById('btn-add-ticket');
@@ -247,20 +173,7 @@
                 dom.btnGuardar.addEventListener('click', _guardarTodo);
             }
 
-            // Mostrar/ocultar campo "Otro" ajustador
-            if (dom.genAjustador) {
-                dom.genAjustador.addEventListener('change', () => {
-                    if (dom.genAjustadorOtro) {
-                        if (dom.genAjustador.value === 'Otro') {
-                            dom.genAjustadorOtro.classList.remove('d-none');
-                            dom.genAjustadorOtro.focus();
-                        } else {
-                            dom.genAjustadorOtro.classList.add('d-none');
-                            dom.genAjustadorOtro.value = '';
-                        }
-                    }
-                });
-            }
+            // Nota: Los eventos de Siniestro y Distrito ahora se manejan en _setupCombobox dentro de _poblarCatalogos
 
             // Presupuesto
             if (dom.btnAddActualizacion) dom.btnAddActualizacion.addEventListener('click', _addActualizacionPresupuesto);
@@ -270,15 +183,18 @@
             if (dom.btnAddSupervisor) dom.btnAddSupervisor.addEventListener('click', () => _addEquipo('supervisor'));
 
             // Financiero
-            if (dom.btnAddEstimacion) dom.btnAddEstimacion.addEventListener('click', _addEstimacion);
+            if (dom.btnAddEstimacion) dom.btnAddEstimacion.addEventListener('click', () => _addFinanciero('estimacion'));
+            if (dom.btnAddFactura) dom.btnAddFactura.addEventListener('click', () => _addFinanciero('factura'));
 
             // Tickets
             if (dom.btnAddTicket) dom.btnAddTicket.addEventListener('click', _addTicket);
         }
 
-        // ===== CARGA DE DATOS =====
-
+        /**
+         * Carga datos del servidor (Comunicado + Catálogos)
+         */
         async function _loadData() {
+            // Nota: _setLoading(true) se llama en init() antes de llamar a _loadData
             console.log('📥 Cargando datos del comunicado...');
             try {
                 // Cargar catálogos primero si no existen
@@ -297,9 +213,9 @@
                     if (!state.data.presupuesto) state.data.presupuesto = [];
                     if (!state.data.equipo) state.data.equipo = [];
 
-                    // NUEVO: Estructura financiera mejorada
                     if (!state.data.financiero) state.data.financiero = {};
                     if (!state.data.financiero.estimaciones) state.data.financiero.estimaciones = [];
+                    if (!state.data.financiero.facturas) state.data.financiero.facturas = [];
 
                     if (!state.data.tickets) state.data.tickets = [];
 
@@ -322,24 +238,38 @@
             const loaderMessage = document.getElementById('app-loader-message');
             const content = document.getElementById('detalle-content');
 
-            console.log(`🔄 _setLoading(${isLoading})`);
+            console.log(`🔄 _setLoading(${isLoading})`, {
+                loaderExists: !!loader,
+                contentExists: !!content,
+                contentClasses: content?.className
+            });
 
             if (loader) {
                 if (isLoading) {
+                    // Mostrar loader
                     if (loaderTitle) loaderTitle.textContent = 'Cargando Comunicado';
                     if (loaderMessage) loaderMessage.textContent = 'Obteniendo información detallada...';
                     loader.classList.remove('d-none');
 
+                    // Ocultar contenido completamente
                     if (content) {
                         content.classList.add('d-none');
+                        console.log('  → Contenido OCULTO, clases:', content.className);
                     }
+
+                    console.log('  → Spinner VISIBLE');
                 } else {
+                    // Ocultar loader
                     loader.classList.add('d-none');
 
+                    // Mostrar contenido
                     if (content) {
                         content.classList.remove('d-none');
                         content.classList.add('d-flex', 'flex-column', 'h-100');
+                        console.log('  → Contenido VISIBLE, clases:', content.className);
                     }
+
+                    console.log('  → Spinner OCULTO');
                 }
             }
 
@@ -368,6 +298,7 @@
                     dom.dropdownSiniestro,
                     state.catalogs.siniestros,
                     (item) => {
+                        // Callback al seleccionar
                         dom.genSiniestro.value = item.siniestro || item.nombre;
                         _actualizarDetallesSiniestro();
                     }
@@ -389,7 +320,7 @@
         }
 
         /**
-         * Configura un combobox híbrido (input + dropdown) con validación bloqueante
+         * Configura un combobox híbrido (input + dropdown)
          */
         function _setupCombobox(input, dropdownList, items, onSelectCallback) {
             if (!input || !dropdownList) return;
@@ -431,11 +362,13 @@
                 const valor = input.value;
                 poblarLista(valor);
 
+                // Mostrar dropdown si hay texto
                 if (valor.length > 0) {
                     const dropdown = new bootstrap.Dropdown(input);
                     dropdown.show();
                 }
 
+                // Validaciones específicas
                 if (input === dom.genSiniestro) _actualizarDetallesSiniestro();
                 if (input === dom.genDistrito) _verificarNuevoRegistro('distrito');
             });
@@ -444,48 +377,7 @@
                 poblarLista(input.value);
             });
 
-            // MEJORA: Validación bloqueante al perder el foco
-            input.addEventListener('blur', () => {
-                setTimeout(() => {
-                    _validarCatalogoConConfirmacion(input, items);
-                }, 200);
-            });
-        }
-
-        /**
-         * MEJORA 3: Validación bloqueante para evitar registros basura
-         */
-        function _validarCatalogoConConfirmacion(input, items) {
-            if (!input || !input.value.trim()) return;
-
-            const valor = input.value.trim();
-            const tipo = input === dom.genSiniestro ? 'siniestro' :
-                (input === dom.genDistrito ? 'distrito' : null);
-
-            if (!tipo) return;
-
-            const valoresUnicos = items.map(item =>
-                String(item.siniestro || item.distritoRiego || item.nombre || '').toLowerCase().trim()
-            );
-
-            const existe = valoresUnicos.includes(valor.toLowerCase());
-
-            if (!existe && valor.length > 0) {
-                // Mostrar confirmación bloqueante
-                const mensaje = tipo === 'siniestro'
-                    ? `⚠️ ATENCIÓN: El siniestro "${valor}" NO existe en el catálogo.\n\n¿Está seguro de crear un NUEVO siniestro?\n\nSi fue un error de escritura, presione "Cancelar" y corrija el valor.`
-                    : `⚠️ ATENCIÓN: El distrito "${valor}" NO existe en el catálogo.\n\n¿Está seguro de crear un NUEVO distrito?\n\nSi fue un error de escritura, presione "Cancelar" y corrija el valor.`;
-
-                if (!confirm(mensaje)) {
-                    // Si cancela, limpiar el campo
-                    input.value = '';
-                    input.focus();
-
-                    if (tipo === 'siniestro') {
-                        _actualizarDetallesSiniestro();
-                    }
-                }
-            }
+            // Cerrar dropdown al hacer click fuera manejado por Bootstrap
         }
 
         function _verificarNuevoRegistro(tipo) {
@@ -524,44 +416,22 @@
             return d.toISOString().split('T')[0];
         }
 
-        // ===== RENDER PRINCIPAL =====
-
         function _renderData() {
             const d = state.data;
             if (!d) return;
 
             // Header
             dom.headerTitle.textContent = d.comunicado || 'Sin Título';
-
-            // REFACTORIZADO: Ahora muestra Referencia en lugar de Cuenta
-            const referenciaTexto = d.referencia || d.cuenta || d.idCuenta || 'Sin Referencia';
-            dom.headerSubtitle.textContent = `ID: ${d.id} | Ref: ${referenciaTexto}`;
+            dom.headerSubtitle.textContent = `ID: ${d.id} | Cuenta: ${d.cuenta || d.idCuenta}`;
 
             // Form General
             dom.genId.value = d.id || '';
 
-            // REFACTORIZADO: Referencia (antes Cuenta)
-            if (dom.genReferencia) {
-                const refValor = typeof d.referencia === 'object'
-                    ? (d.referencia?.nombre || d.referencia?.referencia || '')
-                    : (d.referencia || d.cuenta || d.idCuenta || '');
-                dom.genReferencia.value = refValor;
-            }
-
-            // NUEVO: Ajustador
-            if (dom.genAjustador) {
-                const ajustadorValor = d.ajustador || 'CTA'; // Default: Charles Taylor
-                if (AJUSTADORES[ajustadorValor]) {
-                    dom.genAjustador.value = ajustadorValor;
-                    if (dom.genAjustadorOtro) dom.genAjustadorOtro.classList.add('d-none');
-                } else {
-                    dom.genAjustador.value = 'Otro';
-                    if (dom.genAjustadorOtro) {
-                        dom.genAjustadorOtro.classList.remove('d-none');
-                        dom.genAjustadorOtro.value = ajustadorValor;
-                    }
-                }
-            }
+            // CUENTA - puede venir como objeto o string
+            const cuentaValor = typeof d.cuenta === 'object'
+                ? (d.cuenta?.nombre || d.cuenta?.cuenta || d.idCuenta || '')
+                : (d.cuenta || d.idCuenta || '');
+            dom.genCuenta.value = cuentaValor;
 
             dom.genFecha.value = _formatDateForInput(d.fecha);
             dom.genComunicado.value = d.comunicado || '';
@@ -570,13 +440,13 @@
             // Selects y Datalists
             if (d.idEstado) dom.genEstado.value = d.idEstado;
 
-            // DISTRITO
+            // DISTRITO - puede venir como objeto o string
             const distritoValor = typeof d.distrito === 'object'
                 ? (d.distrito?.distritoRiego || d.distrito?.nombre || '')
                 : (d.distrito || '');
             if (distritoValor) dom.genDistrito.value = distritoValor;
 
-            // SINIESTRO
+            // SINIESTRO - puede venir como objeto o string
             const siniestroValor = typeof d.siniestro === 'object'
                 ? (d.siniestro?.siniestro || d.siniestro?.nombre || '')
                 : (d.siniestro || '');
@@ -598,6 +468,7 @@
             const valor = String(dom.genSiniestro.value).trim();
             _verificarNuevoRegistro('siniestro');
 
+            // Campos dependientes
             const campoFenomeno = dom.genFenomeno;
             const campoFi = dom.genFi;
             const campoFondo = dom.genFondo;
@@ -607,6 +478,7 @@
                 if (campoFi) { campoFi.value = ''; campoFi.readOnly = true; }
                 if (campoFondo) { campoFondo.value = ''; campoFondo.readOnly = true; }
 
+                // Ocultar avisos
                 if (dom.avisoFenomeno) dom.avisoFenomeno.classList.add('d-none');
                 if (dom.avisoFi) dom.avisoFi.classList.add('d-none');
                 if (dom.avisoFondo) dom.avisoFondo.classList.add('d-none');
@@ -618,6 +490,7 @@
             );
 
             if (siniestroEncontrado) {
+                // Autocompletar y bloquear
                 if (campoFenomeno) {
                     campoFenomeno.value = siniestroEncontrado.fenomeno || '';
                     campoFenomeno.readOnly = true;
@@ -634,11 +507,13 @@
                     campoFondo.classList.add('bg-light');
                 }
 
+                // Ocultar todos los avisos
                 if (dom.avisoFenomeno) dom.avisoFenomeno.classList.add('d-none');
                 if (dom.avisoFi) dom.avisoFi.classList.add('d-none');
                 if (dom.avisoFondo) dom.avisoFondo.classList.add('d-none');
 
             } else {
+                // Nuevo siniestro: Habilitar campos
                 if (campoFenomeno) {
                     campoFenomeno.value = '';
                     campoFenomeno.readOnly = false;
@@ -663,10 +538,11 @@
             }
         }
 
-        // ===== PRESUPUESTO =====
-
+        // --- PRESUPUESTO (Actualizaciones) ---
         function _renderPresupuesto() {
             const tbody = dom.presupuestoBody;
+            console.log('Rendering Presupuesto. Body:', tbody, 'Data:', state.data.presupuesto);
+
             if (!tbody) {
                 console.error('Body de presupuesto no encontrado');
                 return;
@@ -687,16 +563,18 @@
                 return;
             }
 
+            // Encontrar la última actualización para resaltar el "Vigente"
             const lastIndex = items.length - 1;
 
             items.forEach((item, index) => {
-                if (!item) return;
+                if (!item) return; // Proteger contra items nulos
                 const tr = document.createElement('tr');
 
                 const isVigente = index === lastIndex;
-                const isOrigen = index === 0;
+                const isOrigen = index === 0; // El primer registro siempre es "Origen"
                 const rowClass = isVigente ? 'table-active' : '';
 
+                // Columna Revisión: Fija para Origen, editable para actualizaciones
                 let revisionCell;
                 if (isOrigen) {
                     revisionCell = `<td class="ps-4 ${rowClass}"><span class="badge bg-secondary">Origen</span></td>`;
@@ -721,8 +599,8 @@
                     <td>
                         <div class="input-group input-group-sm">
                             <span class="input-group-text">$</span>
-                            <input type="text" class="form-control text-end currency-input" 
-                                value="${_formatCurrency(item.monto, false)}" 
+                            <input type="number" class="form-control text-end" 
+                                value="${item.monto || 0}" step="0.01"
                                 onchange="ComunicadoDetalle.updatePresupuesto(${index}, 'monto', this.value)">
                         </div>
                     </td>
@@ -736,9 +614,6 @@
                 tbody.appendChild(tr);
             });
 
-            // Configurar inputs de moneda después de renderizar
-            tbody.querySelectorAll('.currency-input').forEach(_setupCurrencyInput);
-
             _updateTotalPresupuesto();
         }
 
@@ -746,18 +621,20 @@
             if (!state.data.presupuesto) state.data.presupuesto = [];
             const items = state.data.presupuesto;
 
+            // El primer registro siempre es "Origen", los siguientes tienen revisión vacía para captura manual
             const esOrigen = items.length === 0;
 
             state.data.presupuesto.push({
-                revision: esOrigen ? 'Origen' : '',
+                revision: esOrigen ? 'Origen' : '', // Origen fijo, los demás se capturan manualmente
                 fecha: new Date().toISOString(),
-                monto: esOrigen ? 5782812.23 : 0, // Valor ejemplo para origen
+                monto: 0,
                 esOrigen: esOrigen
             });
             _renderPresupuesto();
         }
 
         function _updateTotalPresupuesto() {
+            // Mostrar el monto de la ÚLTIMA actualización (Vigente)
             const items = state.data.presupuesto || [];
             let totalAut = 0;
 
@@ -769,15 +646,11 @@
             }
 
             if (dom.totalAutorizado) {
-                dom.totalAutorizado.textContent = _formatCurrency(totalAut);
+                dom.totalAutorizado.textContent = `$${totalAut.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
             }
-
-            // Actualizar también resumen financiero
-            _updateResumenFinanciero();
         }
 
-        // ===== EQUIPO =====
-
+        // --- EQUIPO ---
         function _renderEquipo() {
             if (!dom.listaContratistas || !dom.listaSupervisores) return;
             dom.listaContratistas.innerHTML = '';
@@ -790,7 +663,7 @@
             if (contratistas.length === 0) {
                 dom.listaContratistas.innerHTML = '<div class="text-center py-4 text-muted"><small>No hay contratistas asignados</small></div>';
             } else {
-                contratistas.forEach((item) => {
+                contratistas.forEach((item, idx) => {
                     const realIndex = equipo.indexOf(item);
                     const div = document.createElement('div');
                     div.className = 'list-group-item d-flex justify-content-between align-items-center';
@@ -810,7 +683,7 @@
             if (supervisores.length === 0) {
                 dom.listaSupervisores.innerHTML = '<div class="text-center py-4 text-muted"><small>No hay supervisores asignados</small></div>';
             } else {
-                supervisores.forEach((item) => {
+                supervisores.forEach((item, idx) => {
                     const realIndex = equipo.indexOf(item);
                     const div = document.createElement('div');
                     div.className = 'list-group-item d-flex justify-content-between align-items-center';
@@ -831,204 +704,85 @@
             _renderEquipo();
         }
 
-        // ===== FINANCIERO (REFACTORIZADO) =====
-
-        /**
-         * Renderiza la tabla de estimaciones con el nuevo modelo financiero
-         * Estructura de cada estimación:
-         * - numero: Número de estimación (1, 2, 3...)
-         * - fecha: Fecha de la estimación
-         * - montoEjecutado: Estimación Bruta (Monto Ejecutado)
-         * - amortizacion: Amortización de Anticipo (deducción)
-         * - subtotal: A pagar antes de IVA (calculado: ejecutado - amortización)
-         * - iva: IVA (calculado: subtotal * 0.16)
-         * - montoFacturado: Total Neto (calculado: subtotal + iva)
-         */
+        // --- FINANCIERO ---
         function _renderFinanciero() {
-            const tbody = dom.listaEstimaciones;
-            if (!tbody) return;
+            if (!dom.listaEstimaciones || !dom.listaFacturas) return;
+            dom.listaEstimaciones.innerHTML = '';
+            dom.listaFacturas.innerHTML = '';
 
-            tbody.innerHTML = '';
+            const fin = state.data.financiero;
 
-            const estimaciones = state.data.financiero?.estimaciones || [];
-
-            if (estimaciones.length === 0) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="8" class="text-center py-5 text-muted">
-                            <i class="bi bi-calculator fs-1 d-block mb-2"></i>
-                            Sin estimaciones registradas. Haga clic en Nueva Estimación para comenzar.
-                        </td>
-                    </tr>`;
-                _updateResumenFinanciero();
-                return;
+            // Estimaciones
+            if (fin.estimaciones.length === 0) {
+                dom.listaEstimaciones.innerHTML = '<div class="text-center py-4 text-muted"><small>No hay estimaciones registradas</small></div>';
+            } else {
+                fin.estimaciones.forEach((item, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item';
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <input type="text" class="form-control form-control-sm border-0 fw-bold w-50" placeholder="No. Estimación" value="${item.numero || ''}" onchange="ComunicadoDetalle.updateFinanciero('estimaciones', ${index}, 'numero', this.value)">
+                            <div class="input-group input-group-sm w-25">
+                                <span class="input-group-text border-0 bg-transparent">$</span>
+                                <input type="number" class="form-control border-0 text-end fw-bold text-primary" placeholder="0.00" value="${item.monto || ''}" onchange="ComunicadoDetalle.updateFinanciero('estimaciones', ${index}, 'monto', this.value)">
+                            </div>
+                            <button class="btn btn-link text-danger btn-sm" onclick="ComunicadoDetalle.removeFinanciero('estimaciones', ${index})"><i class="bi bi-trash"></i></button>
+                        </div>
+                        <input type="date" class="form-control form-control-sm border-0 text-muted small w-50" value="${_formatDateForInput(item.fecha)}" onchange="ComunicadoDetalle.updateFinanciero('estimaciones', ${index}, 'fecha', this.value)">
+                    `;
+                    dom.listaEstimaciones.appendChild(div);
+                });
             }
 
-            estimaciones.forEach((item, index) => {
-                const tr = document.createElement('tr');
-
-                // Calcular valores automáticos
-                const ejecutado = parseFloat(item.montoEjecutado) || 0;
-                const amortizacion = parseFloat(item.amortizacion) || 0;
-                const subtotal = ejecutado - amortizacion;
-                const iva = subtotal * IVA_RATE;
-                const facturado = subtotal + iva;
-
-                tr.innerHTML = `
-                    <td class="ps-3">
-                        <input type="text" class="form-control form-control-sm text-center fw-bold" 
-                            value="${item.numero || (index + 1)}" 
-                            placeholder="#"
-                            style="width: 70px;"
-                            onchange="ComunicadoDetalle.updateEstimacion(${index}, 'numero', this.value)">
-                    </td>
-                    <td>
-                        <input type="date" class="form-control form-control-sm" 
-                            value="${_formatDateForInput(item.fecha)}"
-                            onchange="ComunicadoDetalle.updateEstimacion(${index}, 'fecha', this.value)">
-                    </td>
-                    <td>
-                        <input type="text" class="form-control form-control-sm text-end currency-input" 
-                            value="${_formatCurrency(ejecutado, false)}"
-                            onchange="ComunicadoDetalle.updateEstimacion(${index}, 'montoEjecutado', this.value)">
-                    </td>
-                    <td>
-                        <input type="text" class="form-control form-control-sm text-end currency-input text-danger" 
-                            value="${_formatCurrency(amortizacion, false)}"
-                            onchange="ComunicadoDetalle.updateEstimacion(${index}, 'amortizacion', this.value)">
-                    </td>
-                    <td class="text-end">
-                        <span class="badge bg-light text-dark">${_formatCurrency(subtotal)}</span>
-                    </td>
-                    <td class="text-end">
-                        <span class="text-muted small">${_formatCurrency(iva)}</span>
-                    </td>
-                    <td class="text-end">
-                        <span class="fw-bold text-success">${_formatCurrency(facturado)}</span>
-                    </td>
-                    <td class="text-center">
-                        <button class="btn btn-outline-danger btn-sm border-0" 
-                            onclick="ComunicadoDetalle.removeEstimacion(${index})" title="Eliminar">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-
-            // Configurar inputs de moneda
-            tbody.querySelectorAll('.currency-input').forEach(_setupCurrencyInput);
+            // Facturas
+            if (fin.facturas.length === 0) {
+                dom.listaFacturas.innerHTML = '<div class="text-center py-4 text-muted"><small>No hay facturas registradas</small></div>';
+            } else {
+                fin.facturas.forEach((item, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item';
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <input type="text" class="form-control form-control-sm border-0 fw-bold w-50" placeholder="Folio Factura" value="${item.folio || ''}" onchange="ComunicadoDetalle.updateFinanciero('facturas', ${index}, 'folio', this.value)">
+                            <div class="input-group input-group-sm w-25">
+                                <span class="input-group-text border-0 bg-transparent">$</span>
+                                <input type="number" class="form-control border-0 text-end fw-bold text-success" placeholder="0.00" value="${item.monto || ''}" onchange="ComunicadoDetalle.updateFinanciero('facturas', ${index}, 'monto', this.value)">
+                            </div>
+                            <button class="btn btn-link text-danger btn-sm" onclick="ComunicadoDetalle.removeFinanciero('facturas', ${index})"><i class="bi bi-trash"></i></button>
+                        </div>
+                        <input type="date" class="form-control form-control-sm border-0 text-muted small w-50" value="${_formatDateForInput(item.fecha)}" onchange="ComunicadoDetalle.updateFinanciero('facturas', ${index}, 'fecha', this.value)">
+                    `;
+                    dom.listaFacturas.appendChild(div);
+                });
+            }
 
             _updateResumenFinanciero();
         }
 
-        function _addEstimacion() {
-            if (!state.data.financiero) state.data.financiero = {};
-            if (!state.data.financiero.estimaciones) state.data.financiero.estimaciones = [];
-
-            const count = state.data.financiero.estimaciones.length;
-
-            // Datos de ejemplo basados en el PDF AM018479-L05
-            const ejemploEstimacion = count === 0 ? {
-                numero: '1',
-                fecha: new Date().toISOString(),
-                montoEjecutado: 3988809.81,
-                amortizacion: 1994404.91
-            } : {
-                numero: String(count + 1),
-                fecha: new Date().toISOString(),
-                montoEjecutado: 0,
-                amortizacion: 0
-            };
-
-            state.data.financiero.estimaciones.push(ejemploEstimacion);
+        function _addFinanciero(tipo) {
+            if (tipo === 'estimacion') {
+                state.data.financiero.estimaciones.push({ numero: '', monto: 0, fecha: '' });
+            } else {
+                state.data.financiero.facturas.push({ folio: '', monto: 0, fecha: '' });
+            }
             _renderFinanciero();
         }
 
-        /**
-         * MEJORA 2: Actualiza el resumen financiero con la nueva lógica
-         * Saldo por Ejercer = Presupuesto Autorizado - Monto Ejecutado Acumulado
-         */
         function _updateResumenFinanciero() {
-            // 1. Obtener presupuesto autorizado (último valor de presupuesto vigente)
-            const presupuestoItems = state.data.presupuesto || [];
-            let presupuestoAutorizado = 0;
-            if (presupuestoItems.length > 0) {
-                presupuestoAutorizado = parseFloat(presupuestoItems[presupuestoItems.length - 1]?.monto) || 0;
-            }
+            if (!dom.finAutorizado) return;
 
-            // 2. Calcular totales de estimaciones
-            const estimaciones = state.data.financiero?.estimaciones || [];
-            let totalEjecutado = 0;
-            let totalAmortizacion = 0;
-            let totalSubtotal = 0;
-            let totalIva = 0;
-            let totalFacturado = 0;
+            const totalPresupuesto = (state.data.presupuesto || []).reduce((acc, item) => acc + ((item.cantidad || 0) * (item.precioUnitario || 0)), 0);
+            const totalEjercido = (state.data.financiero.facturas || []).reduce((acc, item) => acc + (parseFloat(item.monto) || 0), 0);
+            const porEjercer = totalPresupuesto - totalEjercido;
 
-            estimaciones.forEach(est => {
-                const ejecutado = parseFloat(est.montoEjecutado) || 0;
-                const amortizacion = parseFloat(est.amortizacion) || 0;
-                const subtotal = ejecutado - amortizacion;
-                const iva = subtotal * IVA_RATE;
-                const facturado = subtotal + iva;
+            dom.finAutorizado.textContent = '$' + totalPresupuesto.toFixed(2);
+            dom.finEjercido.textContent = '$' + totalEjercido.toFixed(2);
+            dom.finPorEjercer.textContent = '$' + porEjercer.toFixed(2);
 
-                totalEjecutado += ejecutado;
-                totalAmortizacion += amortizacion;
-                totalSubtotal += subtotal;
-                totalIva += iva;
-                totalFacturado += facturado;
-            });
-
-            // 3. Calcular saldo por ejercer (según regla de negocio)
-            // Saldo por Ejercer = Presupuesto Autorizado - Monto Ejecutado Acumulado
-            const saldoPorEjercer = presupuestoAutorizado - totalEjecutado;
-
-            // 4. Calcular porcentaje de avance
-            const porcentajeAvance = presupuestoAutorizado > 0
-                ? Math.min((totalEjecutado / presupuestoAutorizado) * 100, 100)
-                : 0;
-
-            // 5. Actualizar totales de la tabla de estimaciones
-            if (dom.totalEjecutado) dom.totalEjecutado.textContent = _formatCurrency(totalEjecutado);
-            if (dom.totalAmortizacion) dom.totalAmortizacion.textContent = _formatCurrency(totalAmortizacion);
-            if (dom.totalSubtotal) dom.totalSubtotal.textContent = _formatCurrency(totalSubtotal);
-            if (dom.totalIva) dom.totalIva.textContent = _formatCurrency(totalIva);
-            if (dom.totalFacturado) dom.totalFacturado.textContent = _formatCurrency(totalFacturado);
-
-            // 6. Actualizar resumen financiero lateral
-            if (dom.finAutorizado) dom.finAutorizado.textContent = _formatCurrency(presupuestoAutorizado);
-            if (dom.finEjercido) dom.finEjercido.textContent = _formatCurrency(totalEjecutado);
-            if (dom.finPorEjercer) {
-                dom.finPorEjercer.textContent = _formatCurrency(saldoPorEjercer);
-                // Colorear según si hay saldo positivo o negativo
-                dom.finPorEjercer.className = saldoPorEjercer >= 0
-                    ? 'fw-bold fs-5 text-primary'
-                    : 'fw-bold fs-5 text-danger';
-            }
-            if (dom.finFacturado) dom.finFacturado.textContent = _formatCurrency(totalFacturado);
-
-            // 7. Actualizar porcentaje y barra de progreso
-            if (dom.finPorcentaje) dom.finPorcentaje.textContent = `${porcentajeAvance.toFixed(1)}%`;
-            if (dom.finProgressBar) {
-                dom.finProgressBar.style.width = `${porcentajeAvance}%`;
-                // Cambiar color según nivel de avance
-                dom.finProgressBar.className = 'progress-bar ' + (
-                    porcentajeAvance < 50 ? 'bg-info' :
-                        porcentajeAvance < 80 ? 'bg-primary' :
-                            porcentajeAvance < 100 ? 'bg-warning' : 'bg-success'
-                );
-            }
-
-            // 8. Actualizar info del ajustador
-            if (dom.finAjustadorInfo && dom.genAjustador) {
-                const ajustadorValue = dom.genAjustador.value;
-                dom.finAjustadorInfo.textContent = AJUSTADORES[ajustadorValue] ||
-                    (dom.genAjustadorOtro?.value || 'No especificado');
-            }
+            dom.finPorEjercer.className = porEjercer >= 0 ? 'fw-bold text-primary' : 'fw-bold text-danger';
         }
 
-        // ===== TICKETS =====
-
+        // --- TICKETS ---
         function _renderTickets() {
             if (!dom.listaTickets) return;
             dom.listaTickets.innerHTML = '';
@@ -1081,8 +835,6 @@
             // TODO: Implementar renderizado de historial real
         }
 
-        // ===== GUARDAR =====
-
         async function _guardarTodo() {
             if (state.saving) return;
             state.saving = true;
@@ -1090,24 +842,13 @@
             dom.btnGuardar.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Guardando...';
 
             try {
-                // Obtener valor de ajustador
-                let ajustadorFinal = dom.genAjustador?.value || 'CTA';
-                if (ajustadorFinal === 'Otro' && dom.genAjustadorOtro) {
-                    ajustadorFinal = dom.genAjustadorOtro.value || 'Otro';
-                }
-
                 const updates = {
                     comunicado: dom.genComunicado.value,
                     fecha: dom.genFecha.value,
                     descripcion: dom.genDescripcion.value,
-                    referencia: dom.genReferencia?.value || '', // Antes: cuenta
-                    ajustador: ajustadorFinal, // NUEVO
                     idEstado: dom.genEstado.value,
                     distrito: dom.genDistrito.value,
                     siniestro: dom.genSiniestro.value,
-                    fenomeno: dom.genFenomeno?.value || '',
-                    fi: dom.genFi?.value || '',
-                    fondo: dom.genFondo?.value || '',
                     presupuesto: state.data.presupuesto || [],
                     equipo: state.data.equipo || [],
                     financiero: state.data.financiero || {},
@@ -1115,12 +856,12 @@
                 };
 
                 await serverCall('updateComunicado', state.id, updates);
-                alert('✅ Cambios guardados correctamente.');
+                alert('Cambios guardados correctamente.');
                 await _loadData();
 
             } catch (error) {
                 console.error('Error guardando:', error);
-                alert('❌ Error al guardar: ' + error.message);
+                alert('Error al guardar: ' + error.message);
             } finally {
                 state.saving = false;
                 dom.btnGuardar.disabled = false;
@@ -1128,28 +869,20 @@
             }
         }
 
-        // ===== API PÚBLICA =====
-
         return {
             init,
             mount,
-
-            // Presupuesto
             updatePresupuesto: (index, field, value) => {
                 if (!state.data.presupuesto[index]) return;
-                if (field === 'monto') {
-                    state.data.presupuesto[index][field] = _parseCurrency(value);
-                } else {
-                    state.data.presupuesto[index][field] = value;
-                }
-                _renderPresupuesto();
+                // Si es monto, convertir a número, sino dejar como string
+                state.data.presupuesto[index][field] = (field === 'monto' || field === 'montoCapturado') ? (parseFloat(value) || 0) : value;
+                _renderPresupuesto(); // Importante para recalcular nextRev si cambiara algo estructural, pero principalmente para actualizar totales de UI
+                // Nota: Podríamos optimizar no re-renderizando todo, pero _renderPresupuesto actualiza totales del footer.
             },
             removePresupuesto: (index) => {
                 state.data.presupuesto.splice(index, 1);
                 _renderPresupuesto();
             },
-
-            // Equipo
             updateEquipo: (index, field, value) => {
                 if (!state.data.equipo[index]) return;
                 state.data.equipo[index][field] = value;
@@ -1159,27 +892,18 @@
                 state.data.equipo.splice(index, 1);
                 _renderEquipo();
             },
-
-            // Estimaciones (NUEVO modelo financiero)
-            updateEstimacion: (index, field, value) => {
-                const estimaciones = state.data.financiero?.estimaciones;
-                if (!estimaciones || !estimaciones[index]) return;
-
-                if (field === 'montoEjecutado' || field === 'amortizacion') {
-                    estimaciones[index][field] = _parseCurrency(value);
-                } else {
-                    estimaciones[index][field] = value;
-                }
+            updateFinanciero: (tipo, index, field, value) => {
+                const list = state.data.financiero[tipo];
+                if (!list || !list[index]) return;
+                list[index][field] = field === 'monto' ? parseFloat(value) : value;
                 _renderFinanciero();
             },
-            removeEstimacion: (index) => {
-                const estimaciones = state.data.financiero?.estimaciones;
-                if (!estimaciones) return;
-                estimaciones.splice(index, 1);
+            removeFinanciero: (tipo, index) => {
+                const list = state.data.financiero[tipo];
+                if (!list) return;
+                list.splice(index, 1);
                 _renderFinanciero();
             },
-
-            // Tickets
             updateTicket: (index, field, value) => {
                 if (!state.data.tickets[index]) return;
                 state.data.tickets[index][field] = value;
