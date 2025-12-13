@@ -47,7 +47,7 @@
             estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
             distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
             siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] },
-            ajustador: { catalog: 'ajustadores', labelKeys: ['nombreAjustador', 'nombre', 'ajustador'] }
+            ajustador: { catalog: 'ajustadores', labelKeys: ['codigo', 'nombreAjustador', 'nombre', 'ajustador'] }
         };
 
         // =========================================================================
@@ -357,7 +357,7 @@
                             a => String(a.id) === String(cuenta.idAjustador)
                         );
                         if (ajustadorActual) {
-                            ajustadorCombo.input.value = ajustadorActual.nombreAjustador || ajustadorActual.nombre || ajustadorActual.ajustador || '';
+                            ajustadorCombo.input.value = ajustadorActual.codigo || ajustadorActual.nombreAjustador || ajustadorActual.nombre || ajustadorActual.ajustador || '';
                             ajustadorCombo.hidden.value = ajustadorActual.id;
                         } else {
                             ajustadorCombo.input.value = '';
@@ -399,7 +399,7 @@
                 if (ajustadorNombre && !ajustadorId) {
                     devLog('Creando nuevo ajustador:', ajustadorNombre);
                     const ajustadorResult = await serverCall('ensureCatalogRecord', 'ajustadores', {
-                        nombreAjustador: ajustadorNombre
+                        codigo: ajustadorNombre
                     });
                     if (ajustadorResult?.id) {
                         ajustadorId = ajustadorResult.id;
@@ -407,7 +407,7 @@
                         if (ajustadorResult.created) {
                             state.catalogos.ajustadores.push({
                                 id: ajustadorId,
-                                nombreAjustador: ajustadorNombre
+                                codigo: ajustadorNombre
                             });
                         }
                     }
