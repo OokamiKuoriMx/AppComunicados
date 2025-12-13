@@ -50,7 +50,7 @@
             ajustador: { catalog: 'ajustadores', labelKeys: ['codigo', 'nombreAjustador', 'nombre', 'ajustador'] },
             // Combos para Alta Express (usan los mismos catálogos)
             express_ajustador: { catalog: 'ajustadores', labelKeys: ['codigo', 'nombreAjustador', 'nombre', 'ajustador'] },
-            express_nombreCuenta: { catalog: 'cuentas', labelKeys: ['referencia', 'cuenta', 'nombre'] },
+            express_nombreCuenta: { catalog: 'referencias', labelKeys: ['referencia', 'cuenta', 'nombre'] },
             express_estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
             express_distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
             express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] }
@@ -944,11 +944,11 @@
             const source = COMBO_SOURCES[key];
             if (!source) return [];
 
-            // Fallback robusto para cuentas: mirar en state.catalogos O en state.cuentas
-            if (source.catalog === 'cuentas') {
-                const cuentas = state.catalogos?.cuentas || state.cuentas;
+            // Fallback robusto para cuentas/referencias
+            if (source.catalog === 'cuentas' || source.catalog === 'referencias') {
+                const cuentas = state.catalogos?.referencias || state.catalogos?.cuentas || state.cuentas;
                 if (!cuentas || !cuentas.length) {
-                    console.warn(`[Combobox] Advertencia: Catálogo de cuentas vacío para ${key}`);
+                    console.warn(`[Combobox] Advertencia: Catálogo de referencias vacío para ${key}`);
                 }
                 return cuentas || [];
             }
@@ -1060,7 +1060,8 @@
                 'referenciaAjustador', 'referenciaAjustadorId', 'ajustadorSuggestions',
                 // Elementos Alta Express
                 'modalAltaExpress', 'form-express', 'btnGuardarExpress',
-                'express_nombreCuenta', 'express_ajustador', 'express_ajustadorId', 'express_ajustadorSuggestions',
+                'express_nombreCuenta', 'express_nombreCuentaId', 'express_nombreCuentaSuggestions',
+                'express_ajustador', 'express_ajustadorId', 'express_ajustadorSuggestions',
                 'express_comunicadoNombre', 'express_comunicadoFecha', 'express_comunicadoDescripcion',
                 'express_comunicadoEstado', 'express_comunicadoEstadoId', 'express_estadoSuggestions',
                 'express_comunicadoDistrito', 'express_comunicadoDistritoId', 'express_distritoSuggestions',
@@ -1184,9 +1185,10 @@
             const cuentas = await serverCall('readAllRows', 'cuentas');
             console.log(`[_loadCuentas] ${cuentas?.length || 0} referencias cargadas.`, cuentas?.[0]);
             state.cuentas = cuentas || [];
-            // Asignar también a state.catalogos para que el combobox lo encuentre
+            // Asignar también a state.catalogos como 'referencias' para que el combobox lo encuentre
             if (!state.catalogos) state.catalogos = {};
             state.catalogos.cuentas = state.cuentas;
+            state.catalogos.referencias = state.cuentas;
 
             // Renderizar lista de cuentas
             _renderCuentas();
