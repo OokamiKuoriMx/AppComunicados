@@ -1140,7 +1140,7 @@
             }
 
             state.catalogosPromise = Promise.all([
-                serverCall('getComunicadoCatalogs'),
+                serverCall('fetchComunicadoCatalogs'),
                 serverCall('readAllRows', 'ajustadores').catch(() => [])
             ])
                 .then(([data, ajustadoresData]) => {
