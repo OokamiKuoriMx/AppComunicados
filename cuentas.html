@@ -80,7 +80,7 @@
                         <div class="col-md-9">
                             <label for="comunicadoNombre" class="form-label">Comunicado</label>
                             <input type="text" class="form-control text-uppercase" id="comunicadoNombre" required
-                                autocomplete="off" maxlength="180" placeholder="Ej: REHABILITACION DE CANALES">
+                                autocomplete="off" maxlength="180" placeholder="Ej: L01">
                             <div class="invalid-feedback">El nombre del comunicado es obligatorio.</div>
                         </div>
                         <div class="col-md-3">
@@ -93,7 +93,7 @@
                         <div class="col-12">
                             <label for="comunicadoDescripcion" class="form-label">Descripción</label>
                             <textarea class="form-control" id="comunicadoDescripcion" rows="2" required
-                                placeholder="Describe brevemente el comunicado"></textarea>
+                                placeholder="Ej: AM018638-L01, L01A"></textarea>
                             <div class="invalid-feedback">La descripción es obligatoria.</div>
                         </div>
 
@@ -189,9 +189,9 @@
                         <label for="referenciaAjustador" class="form-label">Ajustador</label>
                         <div class="dropdown combobox-dropdown w-100">
                             <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
-                                id="referenciaAjustador" autocomplete="off" placeholder="Ej: JUAN PEREZ" role="combobox"
-                                data-bs-toggle="dropdown" aria-haspopup="listbox" aria-autocomplete="list"
-                                aria-expanded="false" aria-owns="ajustadorSuggestions">
+                                id="referenciaAjustador" autocomplete="off" placeholder="Ej: CHARLES TAYLOR"
+                                role="combobox" data-bs-toggle="dropdown" aria-haspopup="listbox"
+                                aria-autocomplete="list" aria-expanded="false" aria-owns="ajustadorSuggestions">
                             <input type="hidden" id="referenciaAjustadorId">
                             <div class="dropdown-menu w-100 shadow-sm combo-suggestions" id="ajustadorSuggestions"
                                 role="listbox" style="max-height: 220px; overflow-y: auto;"></div>
@@ -257,7 +257,7 @@
                             <label for="express_ajustador" class="form-label">Ajustador</label>
                             <div class="dropdown combobox-dropdown w-100">
                                 <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
-                                    id="express_ajustador" autocomplete="off" placeholder="Ej: JUAN PEREZ"
+                                    id="express_ajustador" autocomplete="off" placeholder="Ej: CHARLES TAYLOR"
                                     role="combobox" data-bs-toggle="dropdown" aria-haspopup="listbox"
                                     aria-autocomplete="list" aria-expanded="false"
                                     aria-owns="express_ajustadorSuggestions">
@@ -277,7 +277,7 @@
                         <div class="col-md-9">
                             <label for="express_comunicadoNombre" class="form-label">Comunicado</label>
                             <input type="text" class="form-control text-uppercase" id="express_comunicadoNombre"
-                                required autocomplete="off" maxlength="180" placeholder="Ej: REHABILITACION DE CANALES">
+                                required autocomplete="off" maxlength="180" placeholder="Ej: L01">
                             <div class="invalid-feedback">Requerido.</div>
                         </div>
                         <div class="col-md-3">
@@ -290,7 +290,7 @@
                         <div class="col-12">
                             <label for="express_comunicadoDescripcion" class="form-label">Descripción</label>
                             <textarea class="form-control" id="express_comunicadoDescripcion" rows="2" required
-                                placeholder="Describe brevemente el comunicado"></textarea>
+                                placeholder="Ej: AM018638-L01, L01A"></textarea>
                             <div class="invalid-feedback">Requerida.</div>
                         </div>
 
