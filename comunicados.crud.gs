@@ -2,7 +2,7 @@
  * ============================================================================
  * ARCHIVO: comunicados.crud.gs
  * Descripción: Operaciones CRUD para Comunicados
- * Versión: 2.4 (Reparado - Fix Duplicates & Renaming)
+ * Versión: 2.5 (FINAL - Duplicates Removed & Sync Forced)
  * ============================================================================
  */
 

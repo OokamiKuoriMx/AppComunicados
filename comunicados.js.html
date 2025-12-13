@@ -536,6 +536,9 @@
         /**
          * Renderiza la tabla de comunicados
          */
+        /**
+         * Renderiza la tabla de comunicados
+         */
         function _renderTable() {
             if (!state.comunicados || state.comunicados.length === 0) {
                 if (dom.emptyState) dom.emptyState.classList.remove('d-none');
@@ -546,10 +549,17 @@
             if (dom.tableContainer) dom.tableContainer.classList.remove('d-none');
             if (dom.totalBadge) dom.totalBadge.textContent = state.comunicados.length;
 
-            const html = state.comunicados.map(com => `
+            // Ordenar por fecha descendente (más recientes primero)
+            const comunicadosOrdenados = [...state.comunicados].sort((a, b) => {
+                const fechaA = String(a.fecha || '');
+                const fechaB = String(b.fecha || '');
+                return fechaB.localeCompare(fechaA);
+            });
+
+            const html = comunicadosOrdenados.map(com => `
                 <tr>
-                    <td class="ps-4 fw-bold text-muted small">#${com.id || ''}</td>
-                    <td><span class="badge bg-light text-dark border">${escapeHtml(com.cuenta || '')}</span></td>
+                    <!-- ID oculto por solicitud -->
+                    <td class="ps-4"><span class="badge bg-light text-dark border">${escapeHtml(com.cuenta || '')}</span></td>
                     <td class="fw-semibold text-primary">${escapeHtml(com.comunicado || '')}</td>
                     <td class="text-nowrap small">${escapeHtml(com.fecha || '')}</td>
                     <td class="small text-truncate" style="max-width: 200px;" title="${escapeHtml(com.descripcion || '')}">
@@ -557,7 +567,7 @@
                     </td>
                     <td class="small">${escapeHtml(com.estado || '')}</td>
                     <td class="small">${escapeHtml(com.distrito || '')}</td>
-                    <td class="small">${escapeHtml(com.siniestro || '')}</td>
+                    <td class="small text-muted">${escapeHtml(com.siniestro || '')}</td>
                     <td class="text-end pe-4">
                         <button class="btn btn-sm btn-outline-primary me-1" onclick="Comunicados.abrirModal(${com.id || ''})" title="Edición rápida">
                             <i class="bi bi-eye"></i> Ver
