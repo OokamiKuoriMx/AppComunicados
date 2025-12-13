@@ -6,18 +6,25 @@
             <p class="text-muted small mb-0">Selecciona una referencia para visualizar y gestionar sus comunicados
                 asociados.</p>
         </div>
-        <div class="d-flex gap-2 flex-wrap w-100 w-lg-auto justify-content-lg-end">
-            <button type="button" class="btn btn-primary flex-fill flex-lg-grow-0 text-nowrap" id="btnAbrirModalCuenta"
-                data-bs-toggle="modal" data-bs-target="#modalCuenta">
-                <i class="bi bi-plus-circle"></i> Agregar Referencia
+        <div class="d-flex gap-2 flex-wrap w-100 w-lg-auto justify-content-lg-end align-items-center">
+            <!-- Alta Express (Principal) -->
+            <button type="button" class="btn btn-success shadow fw-bold flex-fill flex-lg-grow-0 px-4 py-2"
+                id="btnAltaExpress" data-bs-toggle="modal" data-bs-target="#modalAltaExpress">
+                <i class="bi bi-rocket-takeoff me-2"></i> Alta Express
             </button>
-            <button type="button" class="btn btn-success flex-fill flex-lg-grow-0 text-nowrap" id="btnAltaExpress"
-                data-bs-toggle="modal" data-bs-target="#modalAltaExpress">
-                <i class="bi bi-rocket-takeoff"></i> Alta Express
+
+            <!-- Separador Vertical -->
+            <div class="vr mx-2 d-none d-lg-block"></div>
+
+            <!-- Botones Secundarios (Iconos) -->
+            <button type="button" class="btn btn-outline-secondary flex-fill flex-lg-grow-0" id="btnAbrirModalCuenta"
+                data-bs-toggle="modal" data-bs-target="#modalCuenta" title="Agregar solo Referencia">
+                <i class="bi bi-folder-plus fs-5"></i>
             </button>
-            <button type="button" class="btn btn-outline-primary flex-fill flex-lg-grow-0 text-nowrap"
-                id="btnNuevoComunicado" disabled>
-                <i class="bi bi-megaphone"></i> Nuevo Comunicado
+
+            <button type="button" class="btn btn-outline-primary flex-fill flex-lg-grow-0" id="btnNuevoComunicado"
+                disabled title="Agregar Comunicado a Referencia seleccionada">
+                <i class="bi bi-file-earmark-plus fs-5"></i>
             </button>
         </div>
     </div>
@@ -249,10 +256,23 @@
                     <h6 class="border-bottom pb-2 mb-3 text-success">1. Datos de la Referencia</h6>
                     <div class="row g-3 mb-4">
                         <div class="col-md-6">
-                            <label for="express_nombreCuenta" class="form-label">Nombre de Referencia</label>
-                            <input type="text" class="form-control text-uppercase" id="express_nombreCuenta" required
-                                placeholder="Ej: AM005837" oninput="this.value = this.value.toUpperCase()">
-                            <div class="invalid-feedback">Requerido.</div>
+                            <label for="express_nombreCuenta" class="form-label">Referencia (Cuenta)</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="express_nombreCuenta" required autocomplete="off" placeholder="Ej: AM005837"
+                                    role="combobox" data-bs-toggle="dropdown" aria-haspopup="listbox"
+                                    aria-autocomplete="list" aria-expanded="false"
+                                    aria-owns="express_nombreCuentaSuggestions">
+                                <input type="hidden" id="express_nombreCuentaId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions"
+                                    id="express_nombreCuentaSuggestions" role="listbox"
+                                    style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Selecciona o escribe una referencia válida.</div>
+                            <div id="aviso-nuevo-express-cuenta"
+                                class="form-text text-warning d-none small animate-pulse">
+                                <i class="bi bi-plus-circle-dotted me-1"></i> Se dará de alta esta nueva referencia.
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <label for="express_ajustador" class="form-label">Ajustador</label>
@@ -268,6 +288,10 @@
                                     style="max-height: 220px; overflow-y: auto;"></div>
                             </div>
                             <div class="invalid-feedback">Selecciona o crea un ajustador.</div>
+                            <div id="aviso-nuevo-express-ajustador"
+                                class="form-text text-warning d-none small animate-pulse">
+                                <i class="bi bi-person-plus-fill me-1"></i> Se dará de alta este nuevo ajustador.
+                            </div>
                         </div>
                     </div>
 

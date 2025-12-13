@@ -982,3 +982,135 @@ function crearReferenciaConComunicado(datosReferencia, datosComunicado) {
         message: 'Referencia y comunicado creados correctamente.'
     };
 }
+
+/**
+ * === ALTA EXPRESS COMPLETA ===
+ * Orquesta la creación en cadena de: Ajustador -> Referencia -> Comunicado -> Detalles
+ * Maneja la creación condicional de catálogos si son nuevos.
+ */
+function procesarAltaExpress(payload) {
+    const contexto = 'procesarAltaExpress';
+    console.log(`[${contexto}] Iniciando con payload:`, JSON.stringify(payload));
+
+    try {
+        // 1. GESTIÓN DE AJUSTADOR
+        let idAjustador = payload.ajustador?.id;
+        const nombreAjustador = String(payload.ajustador?.nombre || '').trim().toUpperCase();
+
+        if (!idAjustador && nombreAjustador) {
+            // Verificar o crear ajustador usando ensureCatalogRecord (debe estar disponible globalmente)
+            // Si ensureCatalogRecord no soporta 'ajustadores' por defecto, usamos lógica manual o asumimos soporte.
+            // Asumimos que ajustadores tiene campo 'nombreAjustador' según TABLE_DEFINITIONS.
+            const ajResult = ensureCatalogRecord('ajustadores', { nombreAjustador: nombreAjustador });
+            if (!ajResult.success) return propagarRespuestaError(contexto, ajResult);
+            idAjustador = ajResult.data.id;
+        }
+
+        if (!idAjustador) return crearRespuestaError('Se requiere un ajustador válido', { source: contexto });
+
+        // 2. GESTIÓN DE CUENTA / REFERENCIA
+        let idCuenta = payload.cuenta?.id;
+        const nombreCuenta = String(payload.cuenta?.nombre || '').trim().toUpperCase();
+
+        if (!idCuenta && nombreCuenta) {
+            // Verificar si ya existe por nombre para evitar duplicados manuales
+            const cuentasResp = readAllRows('cuentas');
+            const existente = cuentasResp.success ? cuentasResp.data.find(c => normalizarClave(c.cuenta) === normalizarClave(nombreCuenta) || normalizarClave(c.referencia) === normalizarClave(nombreCuenta)) : null;
+
+            if (existente) {
+                idCuenta = existente.id;
+            } else {
+                // Crear nueva cuenta ligada al ajustador
+                const nuevaCuenta = {
+                    cuenta: nombreCuenta, // O referencia
+                    referencia: nombreCuenta,
+                    idAjustador: idAjustador,
+                    fechaAlta: new Date()
+                };
+                const cuentaResult = createRow('cuentas', nuevaCuenta);
+                if (!cuentaResult.success) return propagarRespuestaError(contexto, cuentaResult);
+                idCuenta = cuentaResult.data.id;
+            }
+        }
+
+        if (!idCuenta) return crearRespuestaError('Se requiere una referencia válida', { source: contexto });
+
+        // 3. GESTIÓN DE DISTRITO
+        const distritoNombre = String(payload.ubicacion?.distritoNombre || '').trim().toUpperCase();
+        const distritoResult = ensureCatalogRecord('distritosRiego', { distritoRiego: distritoNombre });
+        if (!distritoResult.success) return propagarRespuestaError(contexto, distritoResult);
+        const idDistrito = distritoResult.data.id;
+
+        // 4. GESTIÓN DE SINIESTRO
+        const siniestroNombre = String(payload.siniestro?.nombre || '').trim().toUpperCase();
+        const siniestroData = {
+            siniestro: siniestroNombre,
+            fenomeno: payload.siniestro?.fenomeno || '',
+            fi: payload.siniestro?.fi || '',
+            fondo: payload.siniestro?.fondo || ''
+        };
+        const siniestroResult = ensureCatalogRecord('siniestros', siniestroData);
+        if (!siniestroResult.success) return propagarRespuestaError(contexto, siniestroResult);
+        const idSiniestro = siniestroResult.data.id;
+
+        // 5. CREACIÓN DE COMUNICADO
+        // Nota: createRow calcula el ID automáticamente si no se pasa.
+        const comunicadoNombre = String(payload.comunicado?.nombre || '').trim();
+        const descripcion = String(payload.comunicado?.descripcion || '').trim();
+        const fecha = payload.comunicado?.fecha;
+        const idEstado = payload.ubicacion?.estadoId;
+
+        // Validar duplicado
+        const todosComunicados = readAllRows('comunicados');
+        if (todosComunicados.success) {
+            const duplicado = todosComunicados.data.find(c =>
+                String(c.idCuenta) === String(idCuenta) &&
+                normalizarClave(c.comunicado) === normalizarClave(comunicadoNombre)
+            );
+            if (duplicado) {
+                return crearRespuestaError(`El comunicado ${comunicadoNombre} ya existe en esta referencia.`, { source: contexto });
+            }
+        }
+
+        const createComResult = createRow('comunicados', {
+            idCuenta: idCuenta,
+            comunicado: comunicadoNombre,
+            status: 1
+        });
+
+        if (!createComResult.success) return propagarRespuestaError(contexto, createComResult);
+        const idComunicadoCreado = createComResult.data.id;
+
+        // 6. CREACIÓN DATOS GENERALES
+        const datosGen = {
+            idComunicado: idComunicadoCreado,
+            descripcion: descripcion,
+            fecha: fecha,
+            idEstado: idEstado,
+            idDR: idDistrito,
+            idSiniestro: idSiniestro,
+            idAjustador: idAjustador
+        };
+
+        const createDGResult = createRow('datosGenerales', datosGen);
+
+        if (!createDGResult.success) {
+            // Intento de limpieza (opcional, arriesgado si falla)
+            eliminarRegistro('comunicados', idComunicadoCreado);
+            return propagarRespuestaError(contexto, createDGResult);
+        }
+
+        return {
+            success: true,
+            message: `Alta Express completada. Referencia: ${nombreCuenta}`,
+            data: {
+                idComunicado: idComunicadoCreado,
+                idCuenta: idCuenta
+            }
+        };
+
+    } catch (error) {
+        console.error('Error en procesarAltaExpress:', error);
+        return crearRespuestaError(`Error en proceso Alta Express: ${error.message}`, { source: contexto, error });
+    }
+}

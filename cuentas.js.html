@@ -50,6 +50,7 @@
             ajustador: { catalog: 'ajustadores', labelKeys: ['codigo', 'nombreAjustador', 'nombre', 'ajustador'] },
             // Combos para Alta Express (usan los mismos catálogos)
             express_ajustador: { catalog: 'ajustadores', labelKeys: ['codigo', 'nombreAjustador', 'nombre', 'ajustador'] },
+            express_nombreCuenta: { catalog: 'cuentas', labelKeys: ['referencia', 'cuenta', 'nombre'] },
             express_estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
             express_distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
             express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] }
@@ -552,7 +553,7 @@
                 await _loadCatalogos();
 
                 // Reiniciar combos express
-                ['express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro'].forEach(key => {
+                ['express_nombreCuenta', 'express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro'].forEach(key => {
                     const combo = state.combos[key];
                     if (combo?.input) {
                         combo.input.value = '';
@@ -574,73 +575,56 @@
                 return;
             }
 
-            // --- 1. DATOS REFERENCIA ---
-            const nombreRef = dom.express_nombreCuenta?.value?.trim().toUpperCase();
-
-            // Obtener Ajustador
-            const ajustadorCombo = state.combos.express_ajustador;
-            const ajustadorNombre = ajustadorCombo?.input?.value?.trim().toUpperCase() || '';
-            let ajustadorId = ajustadorCombo?.hidden?.value || '';
-
-            // Pre-crear Ajustador si es nuevo
-            if (ajustadorNombre && !ajustadorId) {
-                try {
-                    const ajRes = await serverCall('ensureCatalogRecord', 'ajustadores', { codigo: ajustadorNombre });
-                    if (ajRes?.id) {
-                        ajustadorId = ajRes.id;
-                        if (ajRes.created) state.catalogos.ajustadores.push({ id: ajRes.id, codigo: ajustadorNombre });
-                    }
-                } catch (e) { console.warn('Error pre-creando ajustador:', e); }
-            }
-
-            const datosReferencia = {
-                referencia: nombreRef,
-                idAjustador: ajustadorId || null
+            // Construir payload completo para el orquestador del backend
+            const payload = {
+                cuenta: {
+                    id: dom.express_nombreCuentaId?.value || null,
+                    nombre: dom.express_nombreCuenta?.value?.trim().toUpperCase()
+                },
+                ajustador: {
+                    id: dom.express_ajustadorId?.value || null,
+                    nombre: dom.express_ajustador?.value?.trim().toUpperCase()
+                },
+                comunicado: {
+                    nombre: dom.express_comunicadoNombre?.value?.trim().toUpperCase(),
+                    fecha: dom.express_comunicadoFecha?.value,
+                    descripcion: dom.express_comunicadoDescripcion?.value?.trim()
+                },
+                ubicacion: {
+                    estadoId: dom.express_comunicadoEstadoId?.value,
+                    distritoNombre: dom.express_comunicadoDistrito?.value?.trim().toUpperCase()
+                },
+                siniestro: {
+                    nombre: dom.express_comunicadoSiniestro?.value?.trim().toUpperCase()
+                    // Fenomeno y FI se pueden agregar si se incluyen en el form
+                }
             };
 
-            // --- 2. DATOS COMUNICADO ---
-            // Validar Estado
-            const estadoCombo = state.combos.express_estado;
-            const estadoInputVal = estadoCombo?.input?.value;
-            const estadoMatch = _matchCatalogRecord('express_estado', _getComboCatalog('express_estado'), estadoInputVal);
+            _setButtonLoading(dom.btnGuardarExpress, true, 'Procesando todo...');
 
-            if (!estadoMatch) {
-                _showModalError('El estado es inválido. Selecciona uno de la lista correcta.');
-                return;
-            }
-
-            const distritoVal = state.combos.express_distrito?.input?.value?.trim().toUpperCase();
-            const siniestroVal = state.combos.express_siniestro?.input?.value?.trim().toUpperCase();
-
-            const datosComunicado = {
-                comunicado: dom.express_comunicadoNombre?.value,
-                descripcion: dom.express_comunicadoDescripcion?.value,
-                fecha: dom.express_comunicadoFecha?.value,
-                estado: estadoInputVal,
-                estadoId: estadoMatch.id,
-                distrito: distritoVal,
-                siniestro: siniestroVal
-            };
-
-            _setButtonLoading(dom.btnGuardarExpress, true, 'Procesando...');
             try {
-                const response = await serverCall('crearReferenciaConComunicado', datosReferencia, datosComunicado);
+                // Llamada única a la función maestra
+                const response = await serverCall('procesarAltaExpress', payload);
+
                 modals.express?.hide();
-                globalThis.showToast?.('Referencia y Comunicado creados con éxito.');
+                globalThis.showToast?.('Alta Express completada exitosamente.', 'success');
 
                 await _loadCuentas();
 
-                if (response.data?.cuenta?.id) {
-                    state.cuentaSeleccionadaId = response.data.cuenta.id;
-                    // Intento de auto-selección visual
+                // Seleccionar la cuenta creada/usada
+                if (response.data?.idCuenta) {
+                    state.cuentaSeleccionadaId = response.data.idCuenta;
                     setTimeout(() => {
-                        const nuevaFila = dom.listaCuentas?.querySelector(`[data-id="${state.cuentaSeleccionadaId}"]`);
-                        if (nuevaFila) nuevaFila.click();
+                        const fila = dom.listaCuentas?.querySelector(`[data-id="${state.cuentaSeleccionadaId}"]`);
+                        if (fila) fila.click();
+                        else _actualizarSeleccionCuenta(state.cuentas.find(c => idsAreEqual(c.id, state.cuentaSeleccionadaId)), { cargarComunicados: true });
                     }, 500);
                 }
 
             } catch (error) {
-                alert('Error en Alta Express: ' + error.message);
+                console.error('Error Alta Express:', error);
+                _showModalError('Error al procesar: ' + error.message);
+                // Si falla, no cerramos modal para permitir reintento
             } finally {
                 _setButtonLoading(dom.btnGuardarExpress, false);
             }
@@ -721,6 +705,8 @@
                 // Lógica para combos Express
                 if (key === 'express_ajustador') {
                     domKey = 'express_ajustador';
+                } else if (key === 'express_nombreCuenta') {
+                    domKey = 'express_nombreCuenta';
                 } else {
                     // express_estado -> express_comunicadoEstado
                     const subKey = key.replace('express_', '');
@@ -865,6 +851,18 @@
                     _clearModalAlerts();
                 }
             }
+
+            // Lógica visual para nuevos items en Alta Express
+            if (key === 'express_nombreCuenta') {
+                const esNuevo = !match && !!value;
+                const aviso = document.getElementById('aviso-nuevo-express-cuenta');
+                if (aviso) aviso.classList.toggle('d-none', !esNuevo);
+            }
+            if (key === 'express_ajustador') {
+                const esNuevo = !match && !!value;
+                const aviso = document.getElementById('aviso-nuevo-express-ajustador');
+                if (aviso) aviso.classList.toggle('d-none', !esNuevo);
+            }
         };
 
         const _handleComboKeyDown = (key, event) => {
@@ -992,6 +990,7 @@
                     ajustador: { items: [], activeIndex: -1, hideTimeout: null },
                     // Combos express
                     express_ajustador: { items: [], activeIndex: -1, hideTimeout: null },
+                    express_nombreCuenta: { items: [], activeIndex: -1, hideTimeout: null },
                     express_estado: { items: [], activeIndex: -1, hideTimeout: null },
                     express_distrito: { items: [], activeIndex: -1, hideTimeout: null },
                     express_siniestro: { items: [], activeIndex: -1, hideTimeout: null }
@@ -1173,8 +1172,10 @@
             _renderSpinner('listaCuentas', 'Cargando referencias...');
 
             const cuentas = await serverCall('readAllRows', 'cuentas');
-
             state.cuentas = cuentas || [];
+            // Asignar también a state.catalogos para que el combobox lo encuentre
+            if (!state.catalogos) state.catalogos = {};
+            state.catalogos.cuentas = state.cuentas;
 
             // Renderizar lista de cuentas
             _renderCuentas();
