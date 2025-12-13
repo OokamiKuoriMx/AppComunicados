@@ -11,6 +11,10 @@
                 data-bs-target="#modalCuenta">
                 <i class="bi bi-plus-circle"></i> Agregar Referencia
             </button>
+            <button type="button" class="btn btn-success" id="btnAltaExpress" data-bs-toggle="modal"
+                data-bs-target="#modalAltaExpress">
+                <i class="bi bi-rocket-takeoff"></i> Alta Express
+            </button>
             <button type="button" class="btn btn-outline-primary" id="btnNuevoComunicado" disabled>
                 <i class="bi bi-megaphone"></i> Nuevo Comunicado
             </button>
@@ -222,6 +226,129 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-danger" id="btnConfirmDelete">Sí, eliminar</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Alta Express (Referencia + Comunicado) -->
+<div class="modal fade" id="modalAltaExpress" tabindex="-1" aria-labelledby="modalAltaExpressLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="form-express" novalidate>
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="modalAltaExpressLabel">
+                        <i class="bi bi-rocket-takeoff"></i> Alta Express
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body" style="overflow-y: auto; max-height: 75vh;">
+
+                    <!-- SECCIÓN 1: DATOS DE REFERENCIA -->
+                    <h6 class="border-bottom pb-2 mb-3 text-success">1. Datos de la Referencia</h6>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <label for="express_nombreCuenta" class="form-label">Nombre de Referencia</label>
+                            <input type="text" class="form-control text-uppercase" id="express_nombreCuenta" required
+                                placeholder="Ej: AM005837" oninput="this.value = this.value.toUpperCase()">
+                            <div class="invalid-feedback">Requerido.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="express_ajustador" class="form-label">Ajustador</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="express_ajustador" autocomplete="off" placeholder="Ej: JUAN PEREZ"
+                                    role="combobox" data-bs-toggle="dropdown" aria-haspopup="listbox"
+                                    aria-autocomplete="list" aria-expanded="false"
+                                    aria-owns="express_ajustadorSuggestions">
+                                <input type="hidden" id="express_ajustadorId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions"
+                                    id="express_ajustadorSuggestions" role="listbox"
+                                    style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Selecciona o crea un ajustador.</div>
+                        </div>
+                    </div>
+
+                    <!-- SECCIÓN 2: DATOS DEL COMUNICADO -->
+                    <h6 class="border-bottom pb-2 mb-3 text-primary">2. Datos del Comunicado Inicial</h6>
+                    <div class="row g-3">
+                        <!-- Comunicado y Fecha -->
+                        <div class="col-md-9">
+                            <label for="express_comunicadoNombre" class="form-label">Comunicado</label>
+                            <input type="text" class="form-control text-uppercase" id="express_comunicadoNombre"
+                                required autocomplete="off" maxlength="180" placeholder="Ej: REHABILITACION DE CANALES">
+                            <div class="invalid-feedback">Requerido.</div>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="express_comunicadoFecha" class="form-label">Fecha</label>
+                            <input type="date" class="form-control" id="express_comunicadoFecha" required>
+                            <div class="invalid-feedback">Requerido.</div>
+                        </div>
+
+                        <!-- Descripción -->
+                        <div class="col-12">
+                            <label for="express_comunicadoDescripcion" class="form-label">Descripción</label>
+                            <textarea class="form-control" id="express_comunicadoDescripcion" rows="2" required
+                                placeholder="Describe brevemente el comunicado"></textarea>
+                            <div class="invalid-feedback">Requerida.</div>
+                        </div>
+
+                        <!-- Estado y Distrito -->
+                        <div class="col-md-3">
+                            <label for="express_comunicadoEstado" class="form-label">Estado</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="express_comunicadoEstado" required autocomplete="off" placeholder="Ej: DURANGO"
+                                    role="combobox" data-bs-toggle="dropdown" aria-haspopup="listbox"
+                                    aria-autocomplete="list" aria-expanded="false"
+                                    aria-owns="express_estadoSuggestions">
+                                <input type="hidden" id="express_comunicadoEstadoId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions"
+                                    id="express_estadoSuggestions" role="listbox"
+                                    style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Requerido.</div>
+                        </div>
+                        <div class="col-md-9">
+                            <label for="express_comunicadoDistrito" class="form-label">Distrito de Riego</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="express_comunicadoDistrito" required autocomplete="off"
+                                    placeholder="Ej: DR-001 PABELLON" role="combobox" data-bs-toggle="dropdown"
+                                    aria-haspopup="listbox" aria-autocomplete="list" aria-expanded="false"
+                                    aria-owns="express_distritoSuggestions">
+                                <input type="hidden" id="express_comunicadoDistritoId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions"
+                                    id="express_distritoSuggestions" role="listbox"
+                                    style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Requerido.</div>
+                        </div>
+
+                        <!-- Siniestro -->
+                        <div class="col-12">
+                            <label for="express_comunicadoSiniestro" class="form-label">Siniestro</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="express_comunicadoSiniestro" required autocomplete="off"
+                                    placeholder="Ej: SEQUIA 2024" role="combobox" data-bs-toggle="dropdown"
+                                    aria-haspopup="listbox" aria-autocomplete="list" aria-expanded="false"
+                                    aria-owns="express_siniestroSuggestions">
+                                <input type="hidden" id="express_comunicadoSiniestroId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions"
+                                    id="express_siniestroSuggestions" role="listbox"
+                                    style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Requerido.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success" id="btnGuardarExpress">Guardar Todo</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

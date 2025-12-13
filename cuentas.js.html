@@ -47,7 +47,12 @@
             estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
             distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
             siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] },
-            ajustador: { catalog: 'ajustadores', labelKeys: ['codigo', 'nombreAjustador', 'nombre', 'ajustador'] }
+            ajustador: { catalog: 'ajustadores', labelKeys: ['codigo', 'nombreAjustador', 'nombre', 'ajustador'] },
+            // Combos para Alta Express (usan los mismos catálogos)
+            express_ajustador: { catalog: 'ajustadores', labelKeys: ['codigo', 'nombreAjustador', 'nombre', 'ajustador'] },
+            express_estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
+            express_distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
+            express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] }
         };
 
         // =========================================================================
@@ -535,6 +540,112 @@
             }
         };
 
+        // ===================================
+        // FUNCIONES ALTA EXPRESS
+        // ===================================
+
+        const _openAltaExpressModal = async () => {
+            const { dom } = state;
+            dom.formExpress?.reset();
+            dom.formExpress?.classList.remove('was-validated');
+            try {
+                await _loadCatalogos();
+
+                // Reiniciar combos express
+                ['express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro'].forEach(key => {
+                    const combo = state.combos[key];
+                    if (combo?.input) {
+                        combo.input.value = '';
+                        if (combo.hidden) combo.hidden.value = '';
+                        _renderComboSuggestions(key, '', { autoOpen: false });
+                    }
+                });
+            } catch (e) {
+                console.error('Error cargando catálogos para express:', e);
+            }
+        };
+
+        const _handleSubmitExpress = async (event) => {
+            event.preventDefault();
+            const { dom, modals } = state;
+
+            if (!dom.formExpress?.checkValidity()) {
+                dom.formExpress?.classList.add('was-validated');
+                return;
+            }
+
+            // --- 1. DATOS REFERENCIA ---
+            const nombreRef = dom.express_nombreCuenta?.value?.trim().toUpperCase();
+
+            // Obtener Ajustador
+            const ajustadorCombo = state.combos.express_ajustador;
+            const ajustadorNombre = ajustadorCombo?.input?.value?.trim().toUpperCase() || '';
+            let ajustadorId = ajustadorCombo?.hidden?.value || '';
+
+            // Pre-crear Ajustador si es nuevo
+            if (ajustadorNombre && !ajustadorId) {
+                try {
+                    const ajRes = await serverCall('ensureCatalogRecord', 'ajustadores', { codigo: ajustadorNombre });
+                    if (ajRes?.id) {
+                        ajustadorId = ajRes.id;
+                        if (ajRes.created) state.catalogos.ajustadores.push({ id: ajRes.id, codigo: ajustadorNombre });
+                    }
+                } catch (e) { console.warn('Error pre-creando ajustador:', e); }
+            }
+
+            const datosReferencia = {
+                referencia: nombreRef,
+                idAjustador: ajustadorId || null
+            };
+
+            // --- 2. DATOS COMUNICADO ---
+            // Validar Estado
+            const estadoCombo = state.combos.express_estado;
+            const estadoInputVal = estadoCombo?.input?.value;
+            const estadoMatch = _matchCatalogRecord('express_estado', _getComboCatalog('express_estado'), estadoInputVal);
+
+            if (!estadoMatch) {
+                _showModalError('El estado es inválido. Selecciona uno de la lista correcta.');
+                return;
+            }
+
+            const distritoVal = state.combos.express_distrito?.input?.value?.trim().toUpperCase();
+            const siniestroVal = state.combos.express_siniestro?.input?.value?.trim().toUpperCase();
+
+            const datosComunicado = {
+                comunicado: dom.express_comunicadoNombre?.value,
+                descripcion: dom.express_comunicadoDescripcion?.value,
+                fecha: dom.express_comunicadoFecha?.value,
+                estado: estadoInputVal,
+                estadoId: estadoMatch.id,
+                distrito: distritoVal,
+                siniestro: siniestroVal
+            };
+
+            _setButtonLoading(dom.btnGuardarExpress, true, 'Procesando...');
+            try {
+                const response = await serverCall('crearReferenciaConComunicado', datosReferencia, datosComunicado);
+                modals.express?.hide();
+                globalThis.showToast?.('Referencia y Comunicado creados con éxito.');
+
+                await _loadCuentas();
+
+                if (response.data?.cuenta?.id) {
+                    state.cuentaSeleccionadaId = response.data.cuenta.id;
+                    // Intento de auto-selección visual
+                    setTimeout(() => {
+                        const nuevaFila = dom.listaCuentas?.querySelector(`[data-id="${state.cuentaSeleccionadaId}"]`);
+                        if (nuevaFila) nuevaFila.click();
+                    }, 500);
+                }
+
+            } catch (error) {
+                alert('Error en Alta Express: ' + error.message);
+            } finally {
+                _setButtonLoading(dom.btnGuardarExpress, false);
+            }
+        };
+
         // =========================================================================
         // FUNCIONES AUXILIARES
         // =========================================================================
@@ -604,9 +715,18 @@
         const _initCombobox = (key) => {
             const combo = state.combos[key];
 
-            // El ajustador usa prefijo 'referencia', los demás usan 'comunicado'
+            // Mapeo inteligente de claves a IDs del DOM
             let domKey;
-            if (key === 'ajustador') {
+            if (key.startsWith('express_')) {
+                // Lógica para combos Express
+                if (key === 'express_ajustador') {
+                    domKey = 'express_ajustador';
+                } else {
+                    // express_estado -> express_comunicadoEstado
+                    const subKey = key.replace('express_', '');
+                    domKey = `express_comunicado${subKey.charAt(0).toUpperCase() + subKey.slice(1)}`;
+                }
+            } else if (key === 'ajustador') {
                 domKey = 'referenciaAjustador';
             } else {
                 domKey = `comunicado${key.charAt(0).toUpperCase() + key.slice(1)}`;
@@ -869,7 +989,12 @@
                     estado: { items: [], activeIndex: -1, hideTimeout: null },
                     distrito: { items: [], activeIndex: -1, hideTimeout: null },
                     siniestro: { items: [], activeIndex: -1, hideTimeout: null },
-                    ajustador: { items: [], activeIndex: -1, hideTimeout: null }
+                    ajustador: { items: [], activeIndex: -1, hideTimeout: null },
+                    // Combos express
+                    express_ajustador: { items: [], activeIndex: -1, hideTimeout: null },
+                    express_estado: { items: [], activeIndex: -1, hideTimeout: null },
+                    express_distrito: { items: [], activeIndex: -1, hideTimeout: null },
+                    express_siniestro: { items: [], activeIndex: -1, hideTimeout: null }
                 },
                 isNuevoSiniestro: false
             };
@@ -922,7 +1047,14 @@
                 'comunicadoFecha', 'comunicadoEstado', 'comunicadoEstadoId', 'estadoSuggestions', 'comunicadoDistrito',
                 'comunicadoDistritoId', 'distritoSuggestions', 'comunicadoSiniestro', 'comunicadoSiniestroId', 'siniestroSuggestions',
                 'wrapperSiniestroExtra', 'alertErrorComunicado', 'alertInfoComunicado', 'btnGuardarComunicado', 'siniestroFenomeno', 'siniestroFi',
-                'referenciaAjustador', 'referenciaAjustadorId', 'ajustadorSuggestions'
+                'referenciaAjustador', 'referenciaAjustadorId', 'ajustadorSuggestions',
+                // Elementos Alta Express
+                'modalAltaExpress', 'form-express', 'btnGuardarExpress',
+                'express_nombreCuenta', 'express_ajustador', 'express_ajustadorId', 'express_ajustadorSuggestions',
+                'express_comunicadoNombre', 'express_comunicadoFecha', 'express_comunicadoDescripcion',
+                'express_comunicadoEstado', 'express_comunicadoEstadoId', 'express_estadoSuggestions',
+                'express_comunicadoDistrito', 'express_comunicadoDistritoId', 'express_distritoSuggestions',
+                'express_comunicadoSiniestro', 'express_comunicadoSiniestroId', 'express_siniestroSuggestions'
             ];
             ids.forEach(id => {
                 const key = id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
@@ -944,6 +1076,9 @@
             if (state.dom.modalConfirmDelete) {
                 state.modals.delete = new bootstrap.Modal(state.dom.modalConfirmDelete);
             }
+            if (state.dom.modalAltaExpress) {
+                state.modals.express = new bootstrap.Modal(state.dom.modalAltaExpress);
+            }
         };
 
         // SUBFUNCIÓN: Agrega los event listeners necesarios para la interacción del usuario.
@@ -955,8 +1090,12 @@
 
             dom.formCuenta?.addEventListener('submit', _handleSubmitCuenta);
             dom.formComunicado?.addEventListener('submit', _handleSubmitComunicado);
+            dom.formExpress?.addEventListener('submit', _handleSubmitExpress); // ALTA EXPRESS
 
             dom.btnNuevoComunicado?.addEventListener('click', _handleNuevoComunicadoClick);
+
+            // Listener para el botón de Alta Express (para cargar catálogos si hace falta)
+            dom.btnGuardarExpress?.closest('.modal')?.addEventListener('shown.bs.modal', _openAltaExpressModal);
 
             dom.modalCuenta?.addEventListener('hidden.bs.modal', _resetCuentaModal);
             dom.modalNuevoComunicado?.addEventListener('hidden.bs.modal', _resetComunicadoModal);

@@ -840,3 +840,50 @@ function debugFunction() {
     console.log(resultado)
     console.log("--- DEBUG END ---"); // Marca el fin en la consola
 }
+
+/**
+ * Crea una referencia y un comunicado asociado en una sola transacción lógica.
+ * Utilizado por el modal de "Alta Express".
+ * @param {object} datosReferencia - { referencia: '...', idAjustador: ... }
+ * @param {object} datosComunicado - { comunicado: '...', fecha: ..., ... }
+ */
+function crearReferenciaConComunicado(datosReferencia, datosComunicado) {
+    const contexto = 'crearReferenciaConComunicado';
+
+    // 1. Crear Referencia
+    const refResp = createRow('cuentas', datosReferencia);
+    if (!refResp.success) {
+        return propagarRespuestaError(contexto, refResp, { message: 'Error al crear la referencia.' });
+    }
+
+    const nuevaCuentaId = refResp.data.id;
+
+    // 2. Preparar datos del comunicado con el ID de la nueva cuenta
+    datosComunicado.idCuenta = nuevaCuentaId;
+
+    // 3. Crear Comunicado
+    const comResp = createComunicado(datosComunicado);
+
+    if (!comResp.success) {
+        // Rollback: intentar borrar la referencia creada para mantener consistencia
+        console.warn(`[${contexto}] Falló creación de comunicado. Revirtiendo referencia ${nuevaCuentaId}...`);
+        try {
+            deleteRow('cuentas', nuevaCuentaId);
+        } catch (e) {
+            console.error(`[${contexto}] Error en rollback de referencia:`, e);
+        }
+
+        return propagarRespuestaError(contexto, comResp, {
+            message: `Error al crear comunicado: ${comResp.message}. La referencia no se guardó.`
+        });
+    }
+
+    return {
+        success: true,
+        data: {
+            cuenta: refResp.data,
+            comunicado: comResp.data
+        },
+        message: 'Referencia y comunicado creados correctamente.'
+    };
+}
