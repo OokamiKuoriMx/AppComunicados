@@ -558,13 +558,11 @@
 
             const html = comunicadosOrdenados.map(com => `
                 <tr>
-                    <!-- ID oculto por solicitud -->
-                    <td class="ps-4"><span class="badge bg-light text-dark border">${escapeHtml(com.cuenta || '')}</span></td>
-                    <td class="fw-semibold text-primary">${escapeHtml(com.comunicado || '')}</td>
-                    <td class="text-nowrap small">${escapeHtml(com.fecha || '')}</td>
-                    <td class="small text-truncate" style="max-width: 200px;" title="${escapeHtml(com.descripcion || '')}">
+                    <!-- Referencia y Comunicado Corto eliminados. Descripción es ahora la primera columna 'Comunicado' -->
+                    <td class="ps-4 fw-semibold text-primary text-truncate" style="max-width: 350px;" title="${escapeHtml(com.descripcion || '')}">
                         ${escapeHtml(com.descripcion || '')}
                     </td>
+                    <td class="text-nowrap small">${escapeHtml(com.fecha || '')}</td>
                     <td class="small">${escapeHtml(com.estado || '')}</td>
                     <td class="small">${escapeHtml(com.distrito || '')}</td>
                     <td class="small text-muted">${escapeHtml(com.siniestro || '')}</td>
