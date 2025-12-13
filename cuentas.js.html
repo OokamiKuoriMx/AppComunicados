@@ -1143,14 +1143,11 @@
                 serverCall('readAllRows', 'ajustadores').catch(() => [])
             ])
                 .then(([data, ajustadoresData]) => {
-                    // Usar spread para no perder state.catalogos.cuentas si _loadCuentas terminó antes
-                    state.catalogos = {
-                        ...state.catalogos,
-                        estados: data.estados || [],
-                        distritosRiego: data.distritosRiego || [],
-                        siniestros: data.siniestros || [],
-                        ajustadores: ajustadoresData || [],
-                    };
+                    // Asignación individual para mantener la referencia del objeto y sus otras propiedades (como cuentas)
+                    state.catalogos.estados = data.estados || [];
+                    state.catalogos.distritosRiego = data.distritosRiego || [];
+                    state.catalogos.siniestros = data.siniestros || [];
+                    state.catalogos.ajustadores = ajustadoresData || [];
 
                     state.catalogosLoaded = true;
                     state.catalogosPromise = null;
