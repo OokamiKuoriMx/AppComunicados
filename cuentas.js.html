@@ -942,7 +942,18 @@
 
         const _getComboCatalog = (key) => {
             const source = COMBO_SOURCES[key];
-            return source ? (state.catalogos?.[source.catalog] || []) : [];
+            if (!source) return [];
+
+            // Fallback robusto para cuentas: mirar en state.catalogos O en state.cuentas
+            if (source.catalog === 'cuentas') {
+                const cuentas = state.catalogos?.cuentas || state.cuentas;
+                if (!cuentas || !cuentas.length) {
+                    console.warn(`[Combobox] Advertencia: Catálogo de cuentas vacío para ${key}`);
+                }
+                return cuentas || [];
+            }
+
+            return state.catalogos?.[source.catalog] || [];
         };
 
         const escapeHtml = (unsafe) => {
@@ -1171,6 +1182,7 @@
             _renderSpinner('listaCuentas', 'Cargando referencias...');
 
             const cuentas = await serverCall('readAllRows', 'cuentas');
+            console.log(`[_loadCuentas] ${cuentas?.length || 0} referencias cargadas.`, cuentas?.[0]);
             state.cuentas = cuentas || [];
             // Asignar también a state.catalogos para que el combobox lo encuentre
             if (!state.catalogos) state.catalogos = {};
