@@ -111,6 +111,13 @@ function fetchComunicadoCatalogs() {
 }
 
 /**
+ * Alias para compatibilidad con versiones cacheadas del cliente
+ */
+function getComunicadoCatalogs() {
+    return fetchComunicadoCatalogs();
+}
+
+/**
  * === CREAR COMUNICADO ===
  * Realiza validaciones y genera registros relacionados para un nuevo comunicado
  */
