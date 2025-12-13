@@ -53,11 +53,7 @@
             express_nombreCuenta: { catalog: 'referencias', labelKeys: ['referencia', 'cuenta', 'nombre'] },
             express_estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
             express_distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
-            express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] },
-            // Combos Siniestro Extra (Express)
-            express_fenomeno: { catalog: 'siniestros', labelKeys: ['fenomeno'] },
-            express_fi: { catalog: 'siniestros', labelKeys: ['fi'] },
-            express_fondo: { catalog: 'siniestros', labelKeys: ['fondo'] }
+            express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] }
         };
 
         // =========================================================================
@@ -557,7 +553,8 @@
                 await _loadCatalogos();
 
                 // Reiniciar combos express
-                ['express_nombreCuenta', 'express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro', 'express_fenomeno', 'express_fi', 'express_fondo'].forEach(key => {
+                // Reiniciar combos express
+                ['express_nombreCuenta', 'express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro'].forEach(key => {
                     const combo = state.combos[key];
                     if (combo?.input) {
                         combo.input.value = '';
@@ -565,6 +562,11 @@
                         _renderComboSuggestions(key, '', { autoOpen: false });
                     }
                 });
+
+                // Limpiar inputs extra manualmente (ya no son combos)
+                if (dom.express_siniestroFenomeno) dom.express_siniestroFenomeno.value = '';
+                if (dom.express_siniestroFi) dom.express_siniestroFi.value = '';
+                if (dom.express_siniestroFondo) dom.express_siniestroFondo.value = '';
 
                 // Ocultar extras de siniestro
                 if (dom.express_wrapperSiniestroExtra) dom.express_wrapperSiniestroExtra.classList.add('d-none');
@@ -772,8 +774,18 @@
             if (!combo) return;
 
             clearTimeout(combo.hideTimeout);
-            const value = normalizeClientText(combo.input.value, { uppercase: true });
-            combo.input.value = value;
+
+            // Normalización suave durante escritura: Solo mayúsculas, SIN trim para permitir espacios
+            const input = combo.input;
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            const value = input.value.toUpperCase();
+
+            if (input.value !== value) {
+                input.value = value;
+                // Restaurar posición del cursor para no interrumpir escritura
+                try { input.setSelectionRange(start, end); } catch (e) { }
+            }
 
             _renderComboSuggestions(key, value, { autoOpen: true });
         };
@@ -1025,10 +1037,7 @@
                     express_nombreCuenta: { items: [], activeIndex: -1, hideTimeout: null },
                     express_estado: { items: [], activeIndex: -1, hideTimeout: null },
                     express_distrito: { items: [], activeIndex: -1, hideTimeout: null },
-                    express_siniestro: { items: [], activeIndex: -1, hideTimeout: null },
-                    express_fenomeno: { items: [], activeIndex: -1, hideTimeout: null },
-                    express_fi: { items: [], activeIndex: -1, hideTimeout: null },
-                    express_fondo: { items: [], activeIndex: -1, hideTimeout: null }
+                    express_siniestro: { items: [], activeIndex: -1, hideTimeout: null }
                 },
                 isNuevoSiniestro: false
             };
@@ -1092,9 +1101,9 @@
                 'express_comunicadoDistrito', 'express_comunicadoDistritoId', 'express_distritoSuggestions',
                 'express_comunicadoSiniestro', 'express_comunicadoSiniestroId', 'express_siniestroSuggestions',
                 'express_wrapperSiniestroExtra',
-                'express_siniestroFenomeno', 'express_fenomenoSuggestions',
-                'express_siniestroFi', 'express_fiSuggestions',
-                'express_siniestroFondo', 'express_fondoSuggestions'
+                'express_siniestroFenomeno',
+                'express_siniestroFi',
+                'express_siniestroFondo'
             ];
             ids.forEach(id => {
                 const key = id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
