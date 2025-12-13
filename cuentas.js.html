@@ -53,7 +53,11 @@
             express_nombreCuenta: { catalog: 'referencias', labelKeys: ['referencia', 'cuenta', 'nombre'] },
             express_estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
             express_distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
-            express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] }
+            express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] },
+            // Combos Siniestro Extra (Express)
+            express_fenomeno: { catalog: 'siniestros', labelKeys: ['fenomeno'] },
+            express_fi: { catalog: 'siniestros', labelKeys: ['fi'] },
+            express_fondo: { catalog: 'siniestros', labelKeys: ['fondo'] }
         };
 
         // =========================================================================
@@ -553,7 +557,7 @@
                 await _loadCatalogos();
 
                 // Reiniciar combos express
-                ['express_nombreCuenta', 'express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro'].forEach(key => {
+                ['express_nombreCuenta', 'express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro', 'express_fenomeno', 'express_fi', 'express_fondo'].forEach(key => {
                     const combo = state.combos[key];
                     if (combo?.input) {
                         combo.input.value = '';
@@ -561,6 +565,9 @@
                         _renderComboSuggestions(key, '', { autoOpen: false });
                     }
                 });
+
+                // Ocultar extras de siniestro
+                if (dom.express_wrapperSiniestroExtra) dom.express_wrapperSiniestroExtra.classList.add('d-none');
             } catch (e) {
                 console.error('Error cargando catálogos para express:', e);
             }
@@ -595,8 +602,10 @@
                     distritoNombre: dom.express_comunicadoDistrito?.value?.trim().toUpperCase()
                 },
                 siniestro: {
-                    nombre: dom.express_comunicadoSiniestro?.value?.trim().toUpperCase()
-                    // Fenomeno y FI se pueden agregar si se incluyen en el form
+                    nombre: dom.express_comunicadoSiniestro?.value?.trim().toUpperCase(),
+                    fenomeno: dom.express_siniestroFenomeno?.value?.trim().toUpperCase(),
+                    fi: dom.express_siniestroFi?.value?.trim().toUpperCase(),
+                    fondo: dom.express_siniestroFondo?.value?.trim().toUpperCase()
                 }
             };
 
@@ -863,13 +872,24 @@
                 const aviso = document.getElementById('aviso-nuevo-express-ajustador');
                 if (aviso) aviso.classList.toggle('d-none', !esNuevo);
             }
+
+            if (key === 'express_siniestro') {
+                const esNuevo = !match && !!value;
+                if (state.dom.express_wrapperSiniestroExtra) {
+                    state.dom.express_wrapperSiniestroExtra.classList.toggle('d-none', !esNuevo);
+                }
+            }
         };
 
         const _handleComboKeyDown = (key, event) => {
             const combo = state.combos[key];
             if (!combo) return;
 
-            if (!combo.dropdownInstance || !combo.wrapper?.classList.contains('show')) {
+            // Verificar visibilidad usando la clase 'show' en el elemento de sugerencias (menú), no en el wrapper
+            // Bootstrap 5 aplica .show al menú (.dropdown-menu)
+            const isMenuVisible = combo.suggestions?.classList.contains('show');
+
+            if (!combo.dropdownInstance || !isMenuVisible) {
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                     _renderComboSuggestions(key, combo.input.value, { autoOpen: true });
                     event.preventDefault();
@@ -893,19 +913,20 @@
                 }
                 return;
             } else if (event.key === 'Tab') {
-                if (combo.activeIndex !== -1) {
-                    event.preventDefault();
-                    _selectComboByIndex(key, combo.activeIndex, { focusInput: false });
-                    setTimeout(() => {
-                        const form = combo.input.form;
-                        if (form) {
-                            const elements = Array.from(form.elements).filter(el => el.offsetParent !== null && !el.disabled && el.tabIndex !== -1);
-                            const idx = elements.indexOf(combo.input);
-                            if (idx !== -1 && idx + 1 < elements.length) {
-                                elements[idx + 1].focus();
-                            }
-                        }
-                    }, 0);
+                // Comportamiento solicitado: 
+                // 1er TAB -> Seleccionar dato (autocompletar) y quedarse en el campo.
+                // 2do TAB (ya con lista cerrada) -> Navegar al siguiente campo.
+
+                let indexToSelect = combo.activeIndex;
+
+                // Si no hay selección activa pero hay opciones, seleccionamos la primera (autocompletado inteligente)
+                if (indexToSelect === -1 && items.length > 0) {
+                    indexToSelect = 0;
+                }
+
+                if (indexToSelect !== -1) {
+                    event.preventDefault(); // Prevenir cambio de foco
+                    _selectComboByIndex(key, indexToSelect, { focusInput: true });
                 }
                 return;
             } else if (event.key === 'Escape') {
@@ -1004,7 +1025,10 @@
                     express_nombreCuenta: { items: [], activeIndex: -1, hideTimeout: null },
                     express_estado: { items: [], activeIndex: -1, hideTimeout: null },
                     express_distrito: { items: [], activeIndex: -1, hideTimeout: null },
-                    express_siniestro: { items: [], activeIndex: -1, hideTimeout: null }
+                    express_siniestro: { items: [], activeIndex: -1, hideTimeout: null },
+                    express_fenomeno: { items: [], activeIndex: -1, hideTimeout: null },
+                    express_fi: { items: [], activeIndex: -1, hideTimeout: null },
+                    express_fondo: { items: [], activeIndex: -1, hideTimeout: null }
                 },
                 isNuevoSiniestro: false
             };
@@ -1065,7 +1089,12 @@
                 'express_comunicadoNombre', 'express_comunicadoFecha', 'express_comunicadoDescripcion',
                 'express_comunicadoEstado', 'express_comunicadoEstadoId', 'express_estadoSuggestions',
                 'express_comunicadoDistrito', 'express_comunicadoDistritoId', 'express_distritoSuggestions',
-                'express_comunicadoSiniestro', 'express_comunicadoSiniestroId', 'express_siniestroSuggestions'
+                'express_comunicadoDistrito', 'express_comunicadoDistritoId', 'express_distritoSuggestions',
+                'express_comunicadoSiniestro', 'express_comunicadoSiniestroId', 'express_siniestroSuggestions',
+                'express_wrapperSiniestroExtra',
+                'express_siniestroFenomeno', 'express_fenomenoSuggestions',
+                'express_siniestroFi', 'express_fiSuggestions',
+                'express_siniestroFondo', 'express_fondoSuggestions'
             ];
             ids.forEach(id => {
                 const key = id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
