@@ -144,7 +144,7 @@
 
         async function _loadData() {
             try {
-                const catalogsResponse = await serverCall('getComunicadoCatalogs');
+                const catalogsResponse = await serverCall('fetchComunicadoCatalogs');
                 if (catalogsResponse?.success) {
                     state.catalogs = catalogsResponse.data;
                     _poblarCatalogosUI();

@@ -11,7 +11,7 @@
  * Obtiene catálogos necesarios para crear comunicados
  * @return {Object} {success, data: {estados, distritosRiego, siniestros}}
  */
-function getComunicadoCatalogs() {
+function fetchComunicadoCatalogs() {
     try {
         // Leer catálogos usando función genérica
         const estadosResponse = readAllRows('estados');

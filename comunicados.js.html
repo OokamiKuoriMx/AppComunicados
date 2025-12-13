@@ -5,6 +5,7 @@
      */
     globalThis.Comunicados = (() => {
         'use strict';
+        console.log('🚀 Iniciando ejecución de componente Comunicados');
 
         // Estado local del componente
         let state = {
@@ -372,14 +373,14 @@
         async function _loadCatalogs() {
             console.log('Iniciando carga de catálogos...');
             try {
-                const response = await serverCall('getComunicadoCatalogs');
+                const response = await serverCall('fetchComunicadoCatalogs');
                 console.log('Respuesta cruda de catálogos:', response);
 
                 // serverCall devuelve response.data directamente si success es true.
                 // Por lo tanto, 'response' aquí ES el objeto de datos.
 
                 if (response && response.debugLogs) {
-                    console.log('--- LOGS DEL SERVIDOR (getComunicadoCatalogs) ---');
+                    console.log('--- LOGS DEL SERVIDOR (fetchComunicadoCatalogs) ---');
                     response.debugLogs.forEach(log => console.log(`SERVER: ${log}`));
                     console.log('-------------------------------------------------');
                 }

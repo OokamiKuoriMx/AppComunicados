@@ -2,20 +2,16 @@
 
     // =========================================================================
     // ÁREA DE UTILIDADES Y CONFIGURACIÓN
-    // (Todas las "herramientas" y "planos" que usa la aplicación)
     // =========================================================================
 
     // --- 1.1: Declaraciones de Estado Global ---
-    // (Variables que se inicializarán en el PASO 1 de la Lógica Principal)
     let appRoot;
     let appLoader;
     let componentScriptAnchor;
 
     // ============================================================
-    // 🔧 MODO DESARROLLO - Cambia este valor según necesites
+    // 🔧 MODO DESARROLLO
     // ============================================================
-    // true  = Muestra todos los console.log en la consola
-    // false = Oculta los logs (modo producción)
     const DEV_MODE = true;
     // ============================================================
 
@@ -25,14 +21,9 @@
 
     /**
      * Wrapper para console.log que solo imprime si DEV_MODE está activo
-     * y ÚNICAMENTE después de que DOMContentLoaded se haya disparado.
-     * Los mensajes previos se encolan y se muestran cuando el DOM esté listo.
-     * Para desactivar logs: cambia DEV_MODE = false arriba.
-     * @param {...any} args - Argumentos a imprimir.
      */
     function devLog(...args) {
         if (!DEV_MODE) return;
-
         if (isDOMReady) {
             console.log(...args);
         }
@@ -41,220 +32,83 @@
     // Activar logging cuando el DOM esté listo
     document.addEventListener('DOMContentLoaded', () => {
         isDOMReady = true;
-        // Vaciar la cola de logs pendientes
         logQueue.forEach(args => console.log(...args));
         logQueue = [];
     }, { once: true });
 
     // --- 1.2: Caches Globales ---
-    const TEMPLATES = Object.create(null); // Cache para plantillas de servidor
-    const loadedScripts = new Set();      // Registro de scripts cargados
+    const TEMPLATES = Object.create(null);
+    globalThis.TEMPLATES = TEMPLATES; // Exponer globalmente para componentes
+    const loadedScripts = new Set();
 
     // --- 1.3: Utilidad de Saneamiento ---
-    /**
-     * Escapa caracteres peligrosos de HTML para evitar XSS.
-     * @param {string} s - Valor a convertir en string y escapar.
-     * @returns {string} Cadena segura para insertar en el DOM.
-     */
     function escapeHtml(s) {
-        return String(s ?? '').replace(/[&<>"']/g, m => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[m]));
+        if (!s) return '';
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
-    // --- 1.4: Definición de Componentes Estáticos ---
-    // Componente Home (página de inicio)
-    const Home = {
-        render() {
-            return `
-        <section class="card shadow-sm">
-          <div class="card-body">
-            <h1 class="card-title">Inicio</h1>
-            <p class="card-text">Bienvenido a la SPA modular. Esta aplicación demuestra cómo separar CSS y JS usando la función include() en Google Apps Script.</p>
-            <div id="appinfo" class="text-muted">Cargando información de la app…</div>
-          </div>
-        </section>
-      `;
-        },
-        afterRender() {
-            // Llama a la función del servidor para obtener datos
-            // IMPORTANTE: Retorna una promesa para bloquear hasta que cargue
-            return new Promise((resolve, reject) => {
-                google.script.run
-                    .withSuccessHandler(info => {
-                        const el = document.getElementById('appinfo');
-                        if (el) el.innerHTML = `
-                <strong>${escapeHtml(info.name || 'App')}</strong> v${escapeHtml(info.version || '1.0')}
-                <br><span>Usuario: ${escapeHtml(info.user || 'anónimo')}</span>
-              `;
-                        resolve(info);
-                    })
-                    .withFailureHandler(reject)
-                    .getAppInfo();
-            });
-        }
-    };
-
-    // Componente Items (lista de ítems)
-    const Items = {
-        render() {
-            return `
-      <section class="card shadow-sm">
-        <div class="card-body">
-          <h1 class="card-title">Items</h1>
-          <p class="card-text">Los datos se cargan dinámicamente desde el servidor (Google Sheets o datos de ejemplo).</p>
-          <div id="items">Cargando...</div>
-        </div>
-      </section>
-    `;
-        },
-        afterRender() {
-            // Llama a la función del servidor para obtener la lista de items
-            google.script.run.withSuccessHandler(list => {
-                const el = document.getElementById('items');
-                if (!el) return;
-                if (!list || !list.length) { el.textContent = 'No se encontraron datos.'; return; }
-
-                const rows = list.map(o => `
-        <tr>
-          <td>${escapeHtml(o.id)}</td>
-          <td>${escapeHtml(o.nombre)}</td>
-          <td>${escapeHtml(o.estado)}</td>
-        </tr>
-      `).join('');
-
-                el.innerHTML = `
-        <table class="table table-striped table-hover">
-          <thead><tr><th>ID</th><th>Nombre</th><th>Estado</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      `;
-            }).listItems();
-        }
-    };
-
-    // Componente About (acerca de)
-    const About = {
-        render() {
-            return `
-        <section class="card shadow-sm">
-          <div class="card-body">
-            <h1 class="card-title">Acerca de</h1>
-            <p class="card-text">Esta aplicación usa Bootstrap 5 desde una CDN para los estilos y un enrutador por hash hecho en JavaScript para navegar entre las páginas sin recargar.</p>
-          </div>
-        </section>
-      `;
-        }
-    };
-
-    // Componente NotFound (ruta no encontrada)
-    const NotFound = {
-        render() {
-            return `
-        <section class="card shadow-sm">
-          <div class="card-body">
-            <h1 class="card-title text-danger">404 - Ruta no encontrada</h1>
-            <p class="card-text">La página que buscas no existe.</p>
-            <a href="#/" class="btn btn-primary">Volver al inicio</a>
-          </div>
-        </section>
-      `;
-        }
-    };
-
-    // --- 1.5: Configuración de Rutas ---
-    // Configuracion del Router (rutas estáticas y dinámicas)
-    /**
-     * Rutas estáticas del enrutador: hash -> componente.
-     * @type {Record<string, {render:Function, afterRender?:Function, mount?:Function}>}
-     */
-    const staticRoutes = {
-        '#/': Home,
-        '#/items': Items,
-        '#/about': About
-    };
-
-    /**
-     * Configuración de rutas con carga diferida (lazy).
-     * Cada ruta indica el nombre del script a cargar y la clave global expuesta.
-     * @type {Record<string, {script:string, global:string, template?:string}>}
-     */
-    const lazyRouteConfigs = {
-        '#/cuentas': { script: 'cuentas.js', global: 'Cuentas', template: 'cuentas' },
-        '#/comunicados': { script: 'comunicados.js', global: 'Comunicados', template: 'comunicados' },
-        '#/comunicado-detalle': { script: 'comunicado_detalle.js', global: 'ComunicadoDetalle', template: 'comunicado_detalle' }
-    };
-
-    // --- 1.6: Utilerías de Carga y Servidor ---
-    /**
-     * Muestra u oculta el indicador de carga de la aplicación.
-     * Controla también el atributo aria-busy del contenedor principal.
-     * @param {boolean} isLoading - true para mostrar loader, false para ocultarlo.
-     */
-    function setAppLoading(isLoading) {
-        if (!appLoader) return;
-        if (isLoading) {
-            appLoader.classList.remove('d-none');
-            appRoot?.setAttribute('aria-busy', 'true');
-        } else {
-            appLoader.classList.add('d-none');
-            appRoot?.removeAttribute('aria-busy');
-        }
-    }
-
-    /**
-     * Elimina un elemento del DOM por su id si existe.
-     * @param {string} id - Id del elemento a eliminar.
-     */
+    // --- 1.4: Utilidades DOM ---
     function removeById(id) {
         const el = document.getElementById(id);
         if (el) el.remove();
     }
 
-    /**
-     * Quita del DOM el script del componente dinámico actual (si existe).
-     */
     function removeComponentScript() {
-        const current = document.getElementById('componentScript');
-        if (current) {
-            current.remove();
+        removeById('componentScript');
+    }
+
+    function extractScriptContent(html) {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        const script = div.querySelector('script');
+        return script ? script.textContent : '';
+    }
+
+    function setAppLoading(isLoading) {
+        console.log(`🟡 setAppLoading llamado con isLoading=${isLoading}`);
+        if (appLoader) {
+            console.log('🟡 appLoader encontrado, aplicando cambios...');
+            if (isLoading) {
+                // Resetear mensaje a genérico antes de mostrar
+                const loaderTitle = document.getElementById('app-loader-title');
+                const loaderMessage = document.getElementById('app-loader-message');
+                if (loaderTitle) loaderTitle.textContent = 'Cargando...';
+                if (loaderMessage) loaderMessage.textContent = 'Por favor espera un momento.';
+
+                // Mostrar loader
+                appLoader.classList.remove('d-none');
+                appLoader.style.opacity = '1';
+                appLoader.style.visibility = 'visible';
+            } else {
+                // Ocultar loader con fade suave
+                appLoader.style.opacity = '0';
+                // Esperar a que complete la transición antes de ocultar completamente
+                setTimeout(() => {
+                    appLoader.classList.add('d-none');
+                    appLoader.style.visibility = 'hidden';
+                }, 250); // Mismo timing que --transition-base
+                console.log('✅ Loader ocultado correctamente');
+            }
+        } else {
+            console.error('❌ appLoader NO encontrado en setAppLoading');
         }
     }
 
-    /**
-     * Extrae el contenido JS de un bloque <script> o devuelve el texto tal cual.
-     * @param {string} raw - Texto que puede contener un bloque <script>.
-     * @returns {string} Código JavaScript listo para inyección.
-     */
-    function extractScriptContent(raw) {
-        if (!raw) return '';
-        const text = String(raw).trim();
-        if (!text) return '';
-        const match = text.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
-        return match ? match[1].trim() : text;
-    }
-
-    /**
-     * Inyecta código JavaScript en la página como un <script> dinámico.
-     * Reemplaza el script previo del componente si existiera.
-     * @param {string} code - Código JS a inyectar (o HTML con <script>).
-     */
     function injectComponentScript(code) {
         if (!code) return;
         removeComponentScript();
         const scriptEl = document.createElement('script');
         scriptEl.id = 'componentScript';
-        devLog(`Inyectando script de componente en ID:`, scriptEl);
+        devLog(`Inyectando script de componente`);
         scriptEl.textContent = extractScriptContent(code);
-        devLog(`Script inyectado`);
         (componentScriptAnchor?.parentNode || document.body || document.documentElement).appendChild(scriptEl);
     }
 
-    /**
-     * Obtiene del servidor (Apps Script) un fragmento identificado (plantilla o script).
-     * @param {string} name - Nombre del fragmento en el bundle de plantillas.
-     * @returns {Promise<string>} Resuelve al contenido solicitado o cadena vacía.
-     */
     function loadServerFragment(name) {
         return new Promise((resolve, reject) => {
             google.script.run
@@ -270,18 +124,67 @@
         });
     }
 
+    // --- 1.5: Componentes Estáticos ---
+    const Home = {
+        render: () => `
+            <div class="jumbotron mt-4">
+                <h1 class="display-4">Bienvenido al Gestor de Comunicados</h1>
+                <p class="lead">Seleccione una opción del menú para comenzar.</p>
+                <hr class="my-4">
+                <p>Utilice la barra lateral para navegar entre los módulos.</p>
+            </div>
+        `
+    };
+
+    const About = {
+        render: () => `
+            <div class="card mt-4">
+                <div class="card-body">
+                    <h5 class="card-title">Acerca de</h5>
+                    <p class="card-text">Versión 1.0.0</p>
+                    <p class="card-text">Desarrollado para gestión eficiente de comunicados.</p>
+                </div>
+            </div>
+        `
+    };
+
+    const NotFound = {
+        render: () => `
+            <div class="alert alert-warning mt-4">
+                <h4 class="alert-heading">404 - Página no encontrada</h4>
+                <p>La ruta solicitada no existe.</p>
+                <hr>
+                <p class="mb-0"><a href="#/">Volver al inicio</a></p>
+            </div>
+        `
+    };
+
+    // --- 1.6: Configuración de Rutas ---
+    const staticRoutes = {
+        '#/': Home,
+        '#/about': About
+    };
+
+    const lazyRouteConfigs = {
+        '#/cuentas': {
+            script: 'cuentas.js',
+            template: 'cuentas',
+            global: 'Cuentas'
+        },
+        '#/comunicados': {
+            script: 'comunicados.js',
+            template: 'comunicados',
+            global: 'Comunicados'
+        },
+        '#/comunicado-detalle': {
+            script: 'comunicado_detalle.js',
+            template: 'comunicado_detalle',
+            global: 'ComunicadoDetalle'
+        }
+    };
+
     // --- 1.7: Utilerías de Comunicación (Google) ---
-    // Función para obtener plantillas del servidor con caché
     if (!globalThis.fetchTemplates) {
-        /**
-         * Fetch = Recupera y cachea una plantilla del lado servidor por nombre.
-         * @param {string} name - Clave de la plantilla en Apps Script.
-         * @returns {Promise<string|null>} HTML de la plantilla o null si no existe.
-         * Ejemplo de uso:
-         *   fetchTemplates('miPlantilla').then(html => { ... });
-         * Devuelve:
-         *  Promise que resuelve al HTML de la plantilla o null.
-         */
         globalThis.fetchTemplates = function fetchTemplates(name) {
             if (!name) return Promise.resolve(null);
             if (TEMPLATES[name]) return Promise.resolve(TEMPLATES[name]);
@@ -300,19 +203,7 @@
         };
     }
 
-    // Función genérica para llamar funciones del servidor
     if (!globalThis.runServer) {
-        /**
-         * Ejecuta una función pública del servidor (Apps Script) por su nombre.
-         * @template T
-         * @param {string} functionName - Nombre de la función en google.script.run.
-         * @param {...any} args - Argumentos a enviar a la función del servidor.
-         * @returns {Promise<T>} Promesa con el valor retornado por el servidor.
-         * Ejemplo de uso:
-         *   runServer('miFuncion', arg1, arg2).then(resultado => {
-         * Devuelve:
-         *  Promise que resuelve al valor retornado por la función del servidor.
-         */
         globalThis.runServer = function runServer(functionName, ...args) {
             return new Promise((resolve, reject) => {
                 const runner = google.script.run
@@ -327,168 +218,49 @@
         };
     }
 
-    // Función genérica avanzada para llamar funciones del servidor con manejo detallado de errores
     if (!globalThis.serverCall) {
-        /**
-         * Invoca funciones del servidor esperando la convención { success, data }.
-         * En caso de error o respuesta inesperada, rechaza con un Error enriquecido.
-         * @template T
-         * @param {string} funcName - Nombre de la función en Apps Script.
-         * @param {...any} args - Argumentos que se pasan al servidor.
-         * @returns {Promise<T>} Resuelve con response.data cuando success = true.
-         * Ejemplo de uso:
-         *   serverCall('miFuncion', arg1, arg2).then(data => {
-         * Devuelve:
-         *  Promise que resuelve al valor retornado response.data cuando success es true.
-         */
         globalThis.serverCall = function serverCall(funcName, ...args) {
-            // --- INICIO DE LA FUNCIÓN ---
-
-            // Imprime en la consola qué función del servidor se está llamando y con qué argumentos.
-            // Es una ayuda para depurar (debug).
-            devLog(`Invocando serverCall a ${funcName} con argumentos:`, args);
-
-            // Crea y devuelve una nueva Promesa. Esto es lo que te permite usar "await"
-            // en lugar de los antiguos ".withSuccessHandler".
+            devLog(`Invocando serverCall a ${funcName} con argumentos: `, args);
             return new Promise((resolve, reject) => {
-
-                // Aquí es donde realmente se llama a Google Apps Script.
                 google.script.run
-
-                    // --- BLOQUE 1: EL "SUCCESS HANDLER" (El 99% de la lógica) ---
-                    // Esto se ejecuta SOLAMENTE si el servidor respondió (incluso si fue un error).
                     .withSuccessHandler(response => {
-
-                        // Log para saber qué respondió el servidor.
                         devLog(`serverCall ${funcName}: respuesta recibida`, response);
-
-                        // --- CASO 1: ÉXITO TOTAL ---
-                        // Comprueba si la respuesta existe Y si tiene la propiedad "success: true".
-                        // Este es el "contrato" que tu servidor debe cumplir.
                         if (response && response.success) {
-                            devLog(`serverCall ${funcName}: respuesta exitosa`, response);
-
-                            // Resuelve la promesa con los datos reales (desenvuelve "response.data").
-                            // Esto es lo que recibirá tu "await".
                             resolve(response.data);
-
-                            // Termina la ejecución de esta función.
                             return;
                         }
-
-                        // --- CASO 2: FALLA SILENCIOSA (EL PEOR ERROR) ---
-                        // Comprueba si la respuesta fue "null" o "undefined".
                         const isNullish = response === null || response === undefined;
-
-                        // Si es "null", significa que tu función en el servidor olvidó un "return".
                         if (isNullish) {
-                            console.error(`serverCall ${funcName}: la función devolvió una respuesta vacía (null/undefined).`, { args });
-
-                            // Rechaza la promesa con un error MUY específico y útil.
-                            reject(new Error(`La función ${funcName} devolvió una respuesta vacía. Verifica que retorne un objeto { success, data }.`));
-
-                            // Termina la ejecución.
+                            console.error(`serverCall ${funcName}: la función devolvió una respuesta vacía.`);
+                            reject(new Error(`La función ${funcName} devolvió una respuesta vacía.`));
                             return;
                         }
-
-                        // --- CASO 3: FALLA CONTROLADA (Error de la app) ---
-                        // Si llegamos aquí, "response" existe pero NO tiene "success: true".
-                        // (Ej. { success: false, error: "Usuario no encontrado" })
-                        if (DEV_MODE) console.error(`serverCall ${funcName}: respuesta sin éxito`, response);
-
-                        // Prepara variables para construir un mensaje de error claro.
                         let message = '';
-                        let errorTrace = []; // Para guardar un posible stack trace del servidor.
-
-                        // Revisa si la respuesta es un objeto para poder leer sus propiedades.
                         if (response && typeof response === 'object') {
-
-                            // Intenta obtener el mensaje de error de "response.message" o "response.error".
                             message = response.message || response.error || '';
-
-                            // Si "message" sigue vacío, es una respuesta inesperada.
                             if (!message) {
                                 try {
-                                    // Intenta convertir el objeto de respuesta en texto JSON.
-                                    message = `Respuesta inesperada: ${JSON.stringify(response)}`;
+                                    message = `Respuesta inesperada: ${JSON.stringify(response)} `;
                                 } catch (jsonError) {
-                                    // Si ni siquiera se puede convertir a JSON, usa un mensaje genérico.
                                     message = 'Respuesta inesperada sin contenido legible.';
                                 }
                             }
-
-                            // Si el servidor incluyó un "errorTrace" (pila de errores), guárdalo.
-                            if (Array.isArray(response.errorTrace)) {
-                                errorTrace = response.errorTrace;
-                            }
                         }
-
-                        // Construye el mensaje de error final que verá el programador.
-                        const finalMessage = message
-                            ? `Error en ${funcName}: ${message}` // Ej: "Error en leerUsuario: Usuario no encontrado"
-                            : `Error en la operación: ${funcName}.`; // Mensaje de último recurso.
-
-                        // Crea un objeto Error real de JavaScript con ese mensaje.
-                        const enrichedError = new Error(finalMessage);
-
-                        // Si la respuesta fue un objeto, añade la información extra al error.
-                        if (response && typeof response === 'object') {
-                            enrichedError.errorTrace = errorTrace; // El stack trace del servidor.
-                            enrichedError.rawResponse = response;  // La respuesta completa para depurar.
-                        }
-
-                        // Rechaza la promesa con este error "enriquecido".
-                        reject(enrichedError);
+                        const finalMessage = message ? `Error en ${funcName}: ${message} ` : `Error en la operación: ${funcName}.`;
+                        reject(new Error(finalMessage));
                     })
-
-                    // --- BLOQUE 2: EL "FAILURE HANDLER" (La falla catastrófica) ---
-                    // Esto se ejecuta si la llamada NUNCA llegó al servidor o si el servidor "explotó".
-                    // (Ej. Sin internet, el servidor crasheó, la función no existe).
                     .withFailureHandler(error => {
-
-                        // Log para saber que fue una falla de invocación.
                         console.error(`serverCall ${funcName}: fallo en la invocación`, error);
-
-                        // Intenta obtener un mensaje de error útil.
-                        const message = error?.message
-                            ? `${error.message} (función ${funcName})` // Añade el nombre de la función al error.
-                            : `Error inesperado al invocar ${funcName}`; // Mensaje genérico.
-
-                        // Asegura que "enrichedError" sea siempre un objeto "Error" real.
-                        let enrichedError = error instanceof Error ? error : new Error(message);
-                        if (!(enrichedError instanceof Error)) {
-                            enrichedError = new Error(message);
-                        }
-
-                        // Si el error original tenía un stack trace, lo preservamos.
-                        if (error && typeof error === 'object' && Array.isArray(error.errorTrace)) {
-                            enrichedError.errorTrace = error.errorTrace;
-                        }
-
-                        // Asegura que el error final siempre tenga un mensaje.
-                        if (!enrichedError.message) {
-                            enrichedError.message = message;
-                        }
-
-                        // Rechaza la promesa con el error de la falla.
-                        reject(enrichedError);
+                        const message = error?.message ? `${error.message} (función ${funcName})` : `Error inesperado al invocar ${funcName} `;
+                        reject(new Error(message));
                     })
-
-                // --- LA LLAMADA FINAL ---
-                // Finalmente, ejecuta la función del servidor (cuyo nombre está en "funcName")
-                // y le pasa todos los argumentos (que están en "...args").
                 [funcName](...args);
             });
         };
     }
 
-    // API específica para el componente Cuentas
     if (!globalThis.serverApi) {
         globalThis.serverApi = {
-            /**
-             * Lee la lista de cuentas desde el servidor (hoja de cálculo).
-             * @returns {Promise<any[]>} Arreglo de cuentas.
-             */
             readCuentas() {
                 return new Promise((resolve, reject) => {
                     google.script.run
@@ -497,150 +269,100 @@
                         .readCuentas();
                 });
             },
-            /**
-             * Lee todos los comunicados enriquecidos.
-             * @returns {Promise<any>} Respuesta {success, data, message}
-             */
             readAllComunicados() {
                 return globalThis.serverCall('readAllComunicados');
             }
         };
     }
 
-
     // =========================================================================
-    // LÓGICA PRINCIPAL (EL ORQUESTADOR DE 7 PASOS)
-    // (El "qué" y "cuándo" se hacen las cosas, usando las utilerías de arriba)
+    // LÓGICA PRINCIPAL (7 PASOS)
     // =========================================================================
 
-    /**
-     * PASO 1: Inicializa referencias del DOM para la app y puntos de inyección.
-     * @returns {void}
-     */
     function app_Init() {
         devLog('--- PASO 1: Inicio de la Aplicación ---');
         appRoot = document.getElementById('app');
         appLoader = document.getElementById('app-loader');
         componentScriptAnchor = document.getElementById('componentScript');
+
+        console.log('🔍 Verificando elementos:');
+        console.log('  - appRoot:', appRoot ? '✅ Encontrado' : '❌ NO encontrado');
+        console.log('  - appLoader:', appLoader ? '✅ Encontrado' : '❌ NO encontrado');
+        console.log('  - componentScriptAnchor:', componentScriptAnchor ? '✅ Encontrado' : '❌ NO encontrado');
+
         devLog('✅ PASO 1 completado');
     }
 
-
-    /**
-     * PASO 2: Resuelve un hash a un componente. Carga JS si la ruta es lazy.
-     * @param {string} hash - Hash actual (ej. "#/", "#/cuentas").
-     * @returns {Promise<object>} Componente que implementa al menos render().
-     */
     async function app_ResolveRoute(hash) {
-        devLog(`--- PASO 2: Resolviendo Ruta [${hash}] ---`);
-
+        devLog(`--- PASO 2: Resolviendo Ruta[${hash}]--- `);
         if (staticRoutes[hash]) {
             devLog('✅ PASO 2 completado (Ruta Estática)');
-            return staticRoutes[hash]; // Retorna el componente estático
+            return staticRoutes[hash];
         }
-
         if (lazyRouteConfigs[hash]) {
-            // Es una ruta dinámica (lazy), necesitamos cargar su script
             const config = lazyRouteConfigs[hash];
-            devLog(`Ruta dinámica detectada. Config:`, config);
-
-            // --- Sub-paso de Adquisición de JS ---
+            devLog(`Ruta dinámica detectada. Config: `, config);
             if (config.script && !loadedScripts.has(config.script)) {
                 try {
                     const code = await loadServerFragment(config.script);
-                    devLog(`Script cargado para ${hash}:`, code);
-                    devLog(`Inyectando script para ${hash}...`);
+                    devLog(`Script cargado para ${hash} `);
                     injectComponentScript(code);
                     loadedScripts.add(config.script);
                 } catch (err) {
-                    console.error(`Fallo al cargar script para ${hash}`, err);
-                    return NotFound; // Falla y muestra 404
+                    console.error(`Fallo al cargar script para ${hash} `, err);
+                    return NotFound;
                 }
             }
-            // --- Fin Sub-paso ---
-
             const component = globalThis[config.global];
             if (component) {
                 devLog('✅ PASO 2 completado (Ruta Dinámica)');
                 return component;
             } else {
                 console.error(`Script ${config.script} cargado, pero global.${config.global} no se encontró.`);
-                return NotFound; // Falla y muestra 404
+                return NotFound;
             }
         }
-
         devLog('✅ PASO 2 completado (Ruta No Encontrada)');
-        return NotFound; // 404
+        return NotFound;
     }
 
-
-    /**
-     * PASO 3: Descarga la plantilla HTML asociada a la ruta si no está cacheada.
-     * No falla duro si hay error; deja que el render maneje fallback.
-     * @param {string} hash - Hash actual de navegación.
-     * @returns {Promise<void>}
-     */
     async function app_AcquireTemplate(hash) {
-        devLog(`--- PASO 3: Adquiriendo Plantilla [${hash}] ---`);
+        devLog(`--- PASO 3: Adquiriendo Plantilla[${hash}]--- `);
         const config = lazyRouteConfigs[hash];
-
-        // Si es una ruta dinámica Y su plantilla no está en caché
         if (config && config.template && !TEMPLATES[config.template]) {
             try {
-                await fetchTemplates(config.template); // Carga y guarda en caché
+                await fetchTemplates(config.template);
                 devLog('✅ PASO 3 completado (Plantilla descargada)');
             } catch (err) {
-                if (DEV_MODE) console.error(`❌ PASO 3 Fallo al cargar plantilla ${config.template}`, err);
-                // No retornamos, `render` fallará y mostrará su propio error
+                if (DEV_MODE) console.error(`❌ PASO 3 Fallo al cargar plantilla ${config.template} `, err);
             }
         } else {
             devLog('✅ PASO 3 completado (Estática o en Caché)');
         }
     }
 
-    /**
-     * PASO 4: Inyecta el HTML base del componente en el contenedor principal.
-     * Limpia estilos y scripts del componente anterior y preserva unmount si existe.
-     * @param {{render?:Function, renderizar?:Function, mount?:Function, despuesDeRenderizar?:Function, afterRender?:Function}} component - Componente a renderizar.
-     * @returns {void}
-     */
     function app_RenderTemplate(component) {
         devLog('--- PASO 4: Renderizando Plantilla ---');
-        // Limpia el contenido anterior
         if (appRoot.__mounted && typeof appRoot.__mounted.unmount === 'function') {
             try { appRoot.__mounted.unmount(appRoot); } catch (e) { console.error('unmount error', e); }
         }
-        removeById('component-script'); // Limpia scripts/estilos viejos
+        removeById('component-script');
         removeById('component-style');
-
-        const renderFn = typeof component.renderizar === 'function'
-            ? component.renderizar
-            : component.render;
-
+        const renderFn = typeof component.renderizar === 'function' ? component.renderizar : component.render;
         if (typeof renderFn === 'function') {
-            appRoot.innerHTML = renderFn.call(component); // Llama a render()
+            appRoot.innerHTML = renderFn.call(component);
         } else {
             appRoot.innerHTML = '<section class="card"><h1>Error: Componente sin render()</h1></section>';
         }
-
-        appRoot.__mounted = component; // Guarda referencia para 'unmount'
+        appRoot.__mounted = component;
         devLog('✅ PASO 4 completado');
     }
 
-    /**
-     * PASO 5: MONTAJE Y CARGA DE DATOS (La Instalación)
-     * Llama a component.mount() para que el componente cargue sus datos internos.
-     */
-    /**
-     * PASO 5: Ejecuta la fase de montaje del componente (carga de datos, listeners, etc.).
-     * @param {{mount?:Function}} component - Componente renderizado.
-     * @returns {Promise<void>}
-     */
     async function app_MountComponent(component) {
         devLog('--- PASO 5: Montando Componente ---');
         if (typeof component.mount === 'function') {
             try {
-                await component.mount(appRoot); // Llama a mount()
+                await component.mount(appRoot);
             } catch (e) {
                 console.error('Error en mount():', e);
             }
@@ -648,120 +370,95 @@
         devLog('✅ PASO 5 completado');
     }
 
-    /**
-     * Marca visualmente el enlace del menú correspondiente al hash actual.
-     * Busca elementos '.nav a' y alterna la clase 'active'.
-     * @returns {void}
-     */
     function setActiveNav() {
         const hash = location.hash || '#/';
-        document.querySelectorAll('.nav a').forEach(a => {
+        // Buscar enlaces en el nuevo sidebar (.sidebar-link) y en el antiguo (.nav a)
+        document.querySelectorAll('.sidebar-link, .nav a').forEach(a => {
             a.classList.toggle('active', a.getAttribute('href') === hash);
         });
     }
 
-    /**
-     * PASO 6: TAREAS POST-MONTAJE (Limpieza y Verificación)
-     * Llama a afterRender() y actualiza la navegación.
-     */
-    /**
-     * PASO 6: Ejecuta tareas posteriores al montaje (afterRender) y marca navegación activa.
-     * @param {{afterRender?:Function, despuesDeRenderizar?:Function}} component - Componente actual.
-     * @returns {void}
-     */
     async function app_PostMountTasks(component) {
         devLog('--- PASO 6: Tareas Post-Montaje ---');
-        const afterRenderFn = typeof component.despuesDeRenderizar === 'function'
-            ? component.despuesDeRenderizar
-            : component.afterRender;
-
+        const afterRenderFn = typeof component.despuesDeRenderizar === 'function' ? component.despuesDeRenderizar : component.afterRender;
         if (typeof afterRenderFn === 'function') {
             try {
                 const result = afterRenderFn.call(component);
-                // Si afterRender retorna una promesa, esperamos a que se complete
                 if (result && typeof result.then === 'function') {
                     await result;
                 }
             } catch (e) { console.error('afterRender error', e); }
         }
-
-        setActiveNav(); // Actualiza el link activo del sidebar
         devLog('✅ PASO 6 completado');
     }
 
-    /**
-    * PASO 7: APLICACIÓN LISTA (Cierre del Proyecto)
-    * Oculta el spinner de carga.
-    */
-    /**
-    * PASO 7: Finaliza el ciclo de navegación y oculta el estado de carga.
-    * @returns {void}
-    */
     function app_AppReady() {
         devLog('--- PASO 7: Aplicación Lista ---');
         setAppLoading(false);
         devLog('✅ PASO 7 completado');
-        devLog('====================================\n\n');
     }
 
-    // --- Función Orquestadora (El "Director de Proyecto") ---
-    // Esta función llama a los 7 pasos en secuencia.
-    async function navigate(hash) {
-        devLog(`\n\n====================================`);
-        devLog(`Navegando a: ${hash}`);
+    // --- Función Orquestadora ---
+    let currentNavigationId = 0; // ID para cancelar navegaciones anteriores
 
-        // PASO 1: Inicialización (ya hecho en app_Init, pero aquí gestionamos el loader global)
+    async function navigate(hash) {
+        // Incrementar ID para esta navegación
+        const thisNavigationId = ++currentNavigationId;
+
+        devLog(`\n\n ==== Navegando a: ${hash} (nav-id: ${thisNavigationId}) ====`);
+
+        // ✅ MEJORADO: Activar la navegación INMEDIATAMENTE para feedback visual instantáneo
+        setActiveNav();
+
         setAppLoading(true);
 
         try {
-            // PASO 2: Resolver Ruta y Cargar Componente (JS)
-            // Esto devuelve el objeto componente (con sus métodos render, mount, etc.)
+            // Verificar si esta navegación sigue siendo válida
+            const isCancelled = () => currentNavigationId !== thisNavigationId;
+
             const component = await app_ResolveRoute(hash);
-
-            // PASO 3: Adquirir Plantilla (HTML)
-            // Descarga la plantilla si es necesaria y no está en caché
-            await app_AcquireTemplate(hash);
-
-            // Ocultar loader global SI NO es la carga inicial
-            // Esto permite que el componente muestre su propio loader (render())
-            if (!isInitialLoad) {
-                setAppLoading(false);
+            if (isCancelled()) {
+                devLog(`⏹️ Navegación ${thisNavigationId} cancelada (ResolveRoute)`);
+                return;
             }
 
-            // PASO 4: Renderizar
-            // Aquí se inserta el HTML en el DOM
+            await app_AcquireTemplate(hash);
+            if (isCancelled()) {
+                devLog(`⏹️ Navegación ${thisNavigationId} cancelada (AcquireTemplate)`);
+                return;
+            }
+
             app_RenderTemplate(component);
 
-            // PASO 5: Montaje y Carga de Datos
-            // Llama a component.mount()
             await app_MountComponent(component);
+            if (isCancelled()) {
+                devLog(`⏹️ Navegación ${thisNavigationId} cancelada (MountComponent)`);
+                return;
+            }
 
-            // PASO 6: Tareas Post-Montaje
-            // Llama a afterRender y actualiza nav
             await app_PostMountTasks(component);
 
-            // PASO 7: Aplicación Lista
-            // Solo si es carga inicial, ocultamos el loader aquí.
             if (isInitialLoad) {
                 app_AppReady();
             } else {
+                setAppLoading(false); // Ocultar AQUÍ, al final
                 devLog('--- Navegación completada ---');
             }
-
         } catch (error) {
-            console.error('Error en navegación:', error);
-            // En caso de error, aseguramos que el loader se oculte para mostrar el error
-            setAppLoading(false);
-            appRoot.innerHTML = `<div class="alert alert-danger">Error al cargar la vista: ${error.message}</div>`;
+            // Solo mostrar error si esta navegación sigue siendo la activa
+            if (currentNavigationId === thisNavigationId) {
+                console.error('Error en navegación:', error);
+                setAppLoading(false);
+                appRoot.innerHTML = `<div class="alert alert-danger">Error al cargar la vista: ${error.message}</div>`;
+            }
         }
     }
 
     // Bandera para evitar doble navegación en la carga inicial
     let isInitialLoad = true;
 
-    // 1. Escuchar futuros cambios de navegación
+    // Escuchar cambios de navegación
     window.addEventListener('hashchange', () => {
-        // Ignorar el primer hashchange si viene de la carga inicial
         if (isInitialLoad) {
             isInitialLoad = false;
             return;
@@ -769,24 +466,37 @@
         navigate(location.hash).catch(err => console.error(err));
     });
 
-    // 2. Iniciar la carga de la página por primera vez
+    // Iniciar la carga de la página por primera vez
     document.addEventListener('DOMContentLoaded', () => {
         devLog('Evento: DOMContentLoaded. Iniciando carga...');
-
-        // PASO 1: Se ejecuta al inicio
         app_Init();
 
-        // Asegura que siempre haya un hash ANTES de navegar
+        // Safety timeout: Force hide loader after 5 seconds if still loading
+        setTimeout(() => {
+            if (isInitialLoad) {
+                console.warn('⚠️ Safety timeout triggered: Forcing loader hide.');
+                setAppLoading(false);
+                if (appRoot && appRoot.innerHTML.trim() === '') {
+                    appRoot.innerHTML = '<div class="alert alert-warning">La aplicación tardó demasiado en cargar. Intente recargar la página.</div>';
+                }
+                isInitialLoad = false;
+            }
+        }, 5000);
+
         if (!location.hash) {
             location.hash = '#/';
         }
-
-        // Inicio de la primera navegación manual
-        // (El orquestador 'navigate' se encargará de los pasos 2 al 7)
-        navigate(location.hash).catch(err => console.error(err));
-
-        // Después de esta navegación, ya no es carga inicial
-        // (El próximo hashchange real sí debe disparar navigate)
-        setTimeout(() => { isInitialLoad = false; }, 100);
+        navigate(location.hash)
+            .then(() => {
+                isInitialLoad = false;
+            })
+            .catch(err => {
+                console.error('Error crítico en carga inicial:', err);
+                setAppLoading(false);
+                if (appRoot) {
+                    appRoot.innerHTML = `<div class="alert alert-danger">Error crítico: ${err.message}</div>`;
+                }
+                isInitialLoad = false;
+            });
     });
 </script>
