@@ -53,7 +53,8 @@
             express_nombreCuenta: { catalog: 'referencias', labelKeys: ['referencia', 'cuenta', 'nombre'] },
             express_estado: { catalog: 'estados', labelKeys: ['nombre', 'estado'] },
             express_distrito: { catalog: 'distritosRiego', labelKeys: ['distritoRiego', 'nombre'] },
-            express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] }
+            express_siniestro: { catalog: 'siniestros', labelKeys: ['nombre', 'siniestro'] },
+            express_siniestroAseguradora: { catalog: 'aseguradoras', labelKeys: ['aseguradora', 'nombre'] }
         };
 
         // =========================================================================
@@ -554,7 +555,7 @@
 
                 // Reiniciar combos express
                 // Reiniciar combos express
-                ['express_nombreCuenta', 'express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro'].forEach(key => {
+                ['express_nombreCuenta', 'express_ajustador', 'express_estado', 'express_distrito', 'express_siniestro', 'express_siniestroAseguradora'].forEach(key => {
                     const combo = state.combos[key];
                     if (combo?.input) {
                         combo.input.value = '';
@@ -607,7 +608,8 @@
                     nombre: dom.express_comunicadoSiniestro?.value?.trim().toUpperCase(),
                     fenomeno: dom.express_siniestroFenomeno?.value?.trim().toUpperCase(),
                     fi: dom.express_siniestroFi?.value?.trim().toUpperCase(),
-                    fondo: dom.express_siniestroFondo?.value?.trim().toUpperCase()
+                    fondo: dom.express_siniestroFondo?.value?.trim().toUpperCase(),
+                    idAseguradora: dom.express_siniestroAseguradoraId?.value || ''
                 }
             };
 
@@ -890,6 +892,21 @@
                 if (state.dom.express_wrapperSiniestroExtra) {
                     state.dom.express_wrapperSiniestroExtra.classList.toggle('d-none', !esNuevo);
                 }
+
+                const comboAseguradora = state.combos['express_siniestroAseguradora'];
+                if (comboAseguradora) {
+                    if (match && match.idAseguradora) {
+                        const aseg = (state.catalogos.aseguradoras || []).find(a => String(a.id) === String(match.idAseguradora));
+                        if (aseg) {
+                            const label = aseg.aseguradora || aseg.nombre || '';
+                            comboAseguradora.input.value = label;
+                            if (comboAseguradora.hidden) comboAseguradora.hidden.value = aseg.id;
+                        }
+                    } else if (esNuevo) {
+                        comboAseguradora.input.value = '';
+                        if (comboAseguradora.hidden) comboAseguradora.hidden.value = '';
+                    }
+                }
             }
         };
 
@@ -1019,7 +1036,7 @@
             return {
                 cuentas: [],
                 comunicados: [],
-                catalogos: { estados: [], distritosRiego: [], siniestros: [], ajustadores: [] },
+                catalogos: { estados: [], distritosRiego: [], siniestros: [], ajustadores: [], aseguradoras: [] },
                 catalogosLoaded: false,
                 catalogosPromise: null,
                 cuentaSeleccionadaId: null,
@@ -1037,7 +1054,8 @@
                     express_nombreCuenta: { items: [], activeIndex: -1, hideTimeout: null },
                     express_estado: { items: [], activeIndex: -1, hideTimeout: null },
                     express_distrito: { items: [], activeIndex: -1, hideTimeout: null },
-                    express_siniestro: { items: [], activeIndex: -1, hideTimeout: null }
+                    express_siniestro: { items: [], activeIndex: -1, hideTimeout: null },
+                    express_siniestroAseguradora: { items: [], activeIndex: -1, hideTimeout: null }
                 },
                 isNuevoSiniestro: false
             };
@@ -1103,7 +1121,8 @@
                 'express_wrapperSiniestroExtra',
                 'express_siniestroFenomeno',
                 'express_siniestroFi',
-                'express_siniestroFondo'
+                'express_siniestroFondo',
+                'express_siniestroAseguradora', 'express_siniestroAseguradoraId', 'express_aseguradoraSuggestions'
             ];
             ids.forEach(id => {
                 const key = id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
@@ -1189,15 +1208,15 @@
             }
 
             state.catalogosPromise = Promise.all([
-                serverCall('fetchComunicadoCatalogs'),
-                serverCall('readAllRows', 'ajustadores').catch(() => [])
+                serverCall('fetchComunicadoCatalogs')
             ])
-                .then(([data, ajustadoresData]) => {
+                .then(([data]) => {
                     // Asignación individual para mantener la referencia del objeto y sus otras propiedades (como cuentas)
                     state.catalogos.estados = data.estados || [];
                     state.catalogos.distritosRiego = data.distritosRiego || [];
                     state.catalogos.siniestros = data.siniestros || [];
-                    state.catalogos.ajustadores = ajustadoresData || [];
+                    state.catalogos.ajustadores = data.ajustadores || [];
+                    state.catalogos.aseguradoras = data.aseguradoras || [];
 
                     state.catalogosLoaded = true;
                     state.catalogosPromise = null;

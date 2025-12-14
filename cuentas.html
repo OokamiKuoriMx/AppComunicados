@@ -252,8 +252,8 @@
                 </div>
                 <div class="modal-body" style="overflow-y: auto; max-height: 75vh;">
 
-                    <!-- SECCIÓN 1: DATOS DE REFERENCIA -->
-                    <h6 class="border-bottom pb-2 mb-3 text-success">1. Datos de la Referencia</h6>
+                    <!-- SECCIÓN 1: REFERENCIA DE AJUSTADOR -->
+                    <h6 class="border-bottom pb-2 mb-3 text-success">1. Referencia de Ajustador</h6>
                     <div class="row g-3 mb-4">
                         <div class="col-md-6">
                             <label for="express_nombreCuenta" class="form-label">Referencia</label>
@@ -295,8 +295,46 @@
                         </div>
                     </div>
 
-                    <!-- SECCIÓN 2: DATOS DEL COMUNICADO -->
-                    <h6 class="border-bottom pb-2 mb-3 text-primary">2. Datos del Comunicado Inicial</h6>
+                    <!-- SECCIÓN 2: REFERENCIA DE ASEGURADORA -->
+                    <h6 class="border-bottom pb-2 mb-3 text-warning">2. Referencia de Aseguradora</h6>
+                    <div class="row g-3 mb-4">
+                        <!-- Siniestro -->
+                        <div class="col-md-6">
+                            <label for="express_comunicadoSiniestro" class="form-label">Siniestro</label>
+                            <div class="dropdown combobox-dropdown w-100">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="express_comunicadoSiniestro" required autocomplete="off"
+                                    placeholder="Ej: SEQUIA 2024" role="combobox" data-bs-toggle="dropdown"
+                                    aria-haspopup="listbox" aria-autocomplete="list" aria-expanded="false"
+                                    aria-owns="express_siniestroSuggestions">
+                                <input type="hidden" id="express_comunicadoSiniestroId">
+                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions"
+                                    id="express_siniestroSuggestions" role="listbox"
+                                    style="max-height: 220px; overflow-y: auto;"></div>
+                            </div>
+                            <div class="invalid-feedback">Requerido.</div>
+                        </div>
+
+                        <!-- Aseguradora -->
+                        <div class="col-md-6">
+                            <label class="form-label">Aseguradora</label>
+                            <div class="dropdown combobox-dropdown w-100 position-relative"
+                                id="express_wrapperSiniestroAseguradora">
+                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
+                                    id="express_siniestroAseguradora" placeholder="BUSCAR ASEGURADORA..."
+                                    autocomplete="off" role="combobox" data-bs-toggle="dropdown" aria-haspopup="listbox"
+                                    aria-autocomplete="list" aria-expanded="false"
+                                    aria-owns="express_aseguradoraSuggestions">
+                                <input type="hidden" id="express_siniestroAseguradoraId" name="idAseguradora">
+                                <ul class="dropdown-menu w-100 shadow-sm combo-suggestions"
+                                    id="express_aseguradoraSuggestions" role="listbox"
+                                    style="max-height: 200px; overflow-y: auto;"></ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECCIÓN 3: DATOS DEL COMUNICADO -->
+                    <h6 class="border-bottom pb-2 mb-3 text-primary">3. Datos del Comunicado Inicial</h6>
                     <div class="row g-3">
                         <!-- Comunicado y Fecha -->
                         <div class="col-md-9">
@@ -351,22 +389,7 @@
                             <div class="invalid-feedback">Requerido.</div>
                         </div>
 
-                        <!-- Siniestro -->
-                        <div class="col-12">
-                            <label for="express_comunicadoSiniestro" class="form-label">Siniestro</label>
-                            <div class="dropdown combobox-dropdown w-100">
-                                <input type="text" class="form-control text-uppercase combobox-input dropdown-toggle"
-                                    id="express_comunicadoSiniestro" required autocomplete="off"
-                                    placeholder="Ej: SEQUIA 2024" role="combobox" data-bs-toggle="dropdown"
-                                    aria-haspopup="listbox" aria-autocomplete="list" aria-expanded="false"
-                                    aria-owns="express_siniestroSuggestions">
-                                <input type="hidden" id="express_comunicadoSiniestroId">
-                                <div class="dropdown-menu w-100 shadow-sm combo-suggestions"
-                                    id="express_siniestroSuggestions" role="listbox"
-                                    style="max-height: 220px; overflow-y: auto;"></div>
-                            </div>
-                            <div class="invalid-feedback">Requerido.</div>
-                        </div>
+
 
                         <!-- Campos extra para Nuevo Siniestro -->
                         <div class="col-12 d-none" id="express_wrapperSiniestroExtra">
@@ -376,6 +399,8 @@
                                         <i class="bi bi-info-circle me-1"></i> Completa los datos del nuevo siniestro
                                     </h6>
                                     <div class="row g-2">
+
+
                                         <div class="col-12">
                                             <label for="express_siniestroFenomeno"
                                                 class="form-label small mb-1">Fenómeno</label>

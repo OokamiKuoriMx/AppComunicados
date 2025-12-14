@@ -75,13 +75,14 @@ function fetchComunicadoCatalogs() {
         const distritos = leerCatalogo('distritosRiego');
         const siniestros = leerCatalogo('siniestros');
         const ajustadores = leerCatalogo('ajustadores');
+        const aseguradoras = leerCatalogo('aseguradoras');
 
         // 4. Procesar datos (ordenar)
         const processResponse = (data) => {
             if (Array.isArray(data)) {
                 return data.sort((a, b) => {
-                    const nombreA = String(a.nombre || a.nombreAjustador || a.estado || a.distritoRiego || a.siniestro || '');
-                    const nombreB = String(b.nombre || b.nombreAjustador || b.estado || b.distritoRiego || b.siniestro || '');
+                    const nombreA = String(a.nombre || a.nombreAjustador || a.estado || a.distritoRiego || a.siniestro || a.aseguradora || '');
+                    const nombreB = String(b.nombre || b.nombreAjustador || b.estado || b.distritoRiego || b.siniestro || b.aseguradora || '');
                     return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
                 });
             }
@@ -95,6 +96,7 @@ function fetchComunicadoCatalogs() {
                 distritosRiego: processResponse(distritos),
                 siniestros: processResponse(siniestros),
                 ajustadores: processResponse(ajustadores),
+                aseguradoras: processResponse(aseguradoras),
                 debugLogs: debugLog // Devolver logs dentro de data para sobrevivir al unwrap
             }
         };
@@ -566,6 +568,13 @@ function enriquecerComunicado(comunicado) {
         const siniestroResult = buscarPorId('siniestros', datosGenerales.idSiniestro);
         const siniestro = siniestroResult.success ? siniestroResult.data : null;
 
+        // NUEVO: Leer aseguradora asociada al siniestro
+        let aseguradoraSiniestro = null;
+        if (siniestro && siniestro.idAseguradora) {
+            const aseResult = buscarPorId('aseguradoras', siniestro.idAseguradora);
+            aseguradoraSiniestro = aseResult.success ? aseResult.data : null;
+        }
+
         // NUEVO: Leer ajustador
         const ajustadorResult = buscarPorId('ajustadores', datosGenerales.idAjustador);
         const ajustador = ajustadorResult.success ? ajustadorResult.data : null;
@@ -682,7 +691,9 @@ function enriquecerComunicado(comunicado) {
                 codigo: siniestro.siniestro,
                 fenomeno: siniestro.fenomeno || '',
                 fondo: siniestro.fondo || '',
-                fi: siniestro.fi || ''
+                fi: siniestro.fi || '',
+                idAseguradora: siniestro.idAseguradora || null,
+                aseguradora: aseguradoraSiniestro ? (aseguradoraSiniestro.aseguradora || aseguradoraSiniestro.nombre || '') : ''
             } : null,
 
             // NUEVO: Ajustador
@@ -1047,7 +1058,8 @@ function procesarAltaExpress(payload) {
             siniestro: siniestroNombre,
             fenomeno: payload.siniestro?.fenomeno || '',
             fi: payload.siniestro?.fi || '',
-            fondo: payload.siniestro?.fondo || ''
+            fondo: payload.siniestro?.fondo || '',
+            idAseguradora: payload.siniestro?.idAseguradora || ''
         };
         const siniestroResult = ensureCatalogRecord('siniestros', siniestroData);
         if (!siniestroResult.success) return propagarRespuestaError(contexto, siniestroResult);
