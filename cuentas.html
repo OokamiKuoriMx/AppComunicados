@@ -331,6 +331,33 @@
                                     style="max-height: 200px; overflow-y: auto;"></ul>
                             </div>
                         </div>
+
+                        <!-- Campos Extra Siniestro (Ocultos por defecto) -->
+                        <div class="col-12 d-none" id="express_wrapperSiniestroExtra">
+                            <div class="p-3 bg-light rounded border border-warning border-start-0 border-end-0">
+                                <h6 class="text-warning small mb-2"><i class="bi bi-plus-circle me-1"></i>Nuevo
+                                    Siniestro</h6>
+                                <div class="row g-3">
+                                    <div class="col-12">
+                                        <label for="express_siniestroFenomeno"
+                                            class="form-label small mb-1">Fenómeno</label>
+                                        <input type="text" class="form-control form-control-sm text-uppercase"
+                                            id="express_siniestroFenomeno" placeholder="Ej: SEQUIA">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="express_siniestroFi" class="form-label small mb-1">Fecha de
+                                            Incidencia</label>
+                                        <input type="text" class="form-control form-control-sm text-uppercase"
+                                            id="express_siniestroFi" placeholder="Ej: 2024">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="express_siniestroFondo" class="form-label small mb-1">Fondo</label>
+                                        <input type="text" class="form-control form-control-sm text-uppercase"
+                                            id="express_siniestroFondo" placeholder="Ej: FONDEN">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- SECCIÓN 3: DATOS DEL COMUNICADO -->
@@ -391,37 +418,6 @@
 
 
 
-                        <!-- Campos extra para Nuevo Siniestro -->
-                        <div class="col-12 d-none" id="express_wrapperSiniestroExtra">
-                            <div class="card bg-light border-warning mt-2">
-                                <div class="card-body py-2">
-                                    <h6 class="card-subtitle mb-2 text-warning small fw-bold">
-                                        <i class="bi bi-info-circle me-1"></i> Completa los datos del nuevo siniestro
-                                    </h6>
-                                    <div class="row g-2">
-
-
-                                        <div class="col-12">
-                                            <label for="express_siniestroFenomeno"
-                                                class="form-label small mb-1">Fenómeno</label>
-                                            <input type="text" class="form-control form-control-sm text-uppercase"
-                                                id="express_siniestroFenomeno" placeholder="Ej: SEQUIA">
-                                        </div>
-                                        <div class="col-6">
-                                            <label for="express_siniestroFi" class="form-label small mb-1">FI</label>
-                                            <input type="text" class="form-control form-control-sm text-uppercase"
-                                                id="express_siniestroFi" placeholder="Ej: 2024">
-                                        </div>
-                                        <div class="col-6">
-                                            <label for="express_siniestroFondo"
-                                                class="form-label small mb-1">Fondo</label>
-                                            <input type="text" class="form-control form-control-sm text-uppercase"
-                                                id="express_siniestroFondo" placeholder="Ej: FONDEN">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
