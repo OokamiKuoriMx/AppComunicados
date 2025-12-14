@@ -232,6 +232,7 @@ function deleteRow(nombreTabla, id) {
  * @returns {{ success: boolean, data?: object[], message: string }}
  */
 function readAllRows(nombreTabla) {
+    if (typeof confirmarConfiguracion === 'function') confirmarConfiguracion();
     const contexto = 'readAllRows';
     console.log(`[${contexto}] Iniciando lectura de tabla: "${nombreTabla}"`);
 

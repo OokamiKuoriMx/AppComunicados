@@ -72,6 +72,7 @@ function obtenerAliases(defHeaders, campo) {
  * @returns {{ success: boolean, data?: object, message: string }}
  */
 function createRow(nombreTabla, datos) {
+    if (typeof confirmarConfiguracion === 'function') confirmarConfiguracion();
     const contexto = 'createRow';
     const def = TABLE_DEFINITIONS[nombreTabla];
     if (!def) {

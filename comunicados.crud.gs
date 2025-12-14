@@ -12,6 +12,7 @@
  * @return {Object} {success, data: {estados, distritosRiego, siniestros}}
  */
 function fetchComunicadoCatalogs() {
+    if (typeof confirmarConfiguracion === 'function') confirmarConfiguracion();
     const debugLog = [];
     const log = (msg) => {
         console.log(msg);
