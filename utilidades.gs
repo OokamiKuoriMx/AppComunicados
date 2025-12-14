@@ -480,3 +480,37 @@ function encontrarObjeto(valorBuscado, campoDeBusqueda, arrayDatos) {
 // const objetoEncontrado = encontrarObjeto(valorQueBusco, campoDondeBuscar, misDatos);
 
 // console.log(objetoEncontrado); // Devolvería { id: 102, codigo: 'B8', descripcion: 'Detalle B' }
+
+/**
+ * Parche de Configuración Dinámico
+ * Inyecta definiciones faltantes en TABLE_DEFINITIONS para asegurar compatibilidad.
+ */
+var _CONFIG_PARCHEADA = false;
+function confirmarConfiguracion() {
+    if (_CONFIG_PARCHEADA) return;
+
+    if (typeof TABLE_DEFINITIONS === 'undefined') return;
+
+    // 1. Agregar columna idAseguradora a Siniestros
+    if (TABLE_DEFINITIONS.siniestros) {
+        if (!TABLE_DEFINITIONS.siniestros.headers) TABLE_DEFINITIONS.siniestros.headers = {};
+
+        if (!TABLE_DEFINITIONS.siniestros.headers.idAseguradora) {
+            TABLE_DEFINITIONS.siniestros.headers.idAseguradora = ['idAseguradora', 'ID ASEGURADORA', 'Aseguradora ID', 'id_aseguradora'];
+        }
+    }
+
+    // 2. Definir Tabla Aseguradoras si no existe
+    if (!TABLE_DEFINITIONS.aseguradoras) {
+        TABLE_DEFINITIONS.aseguradoras = {
+            sheetName: 'Aseguradoras',
+            primaryField: 'nombre',
+            headers: {
+                id: ['id', 'ID'],
+                nombre: ['Aseguradora', 'Nombre', 'NOMBRE'],
+                descripcion: ['Descripcion', 'DESCRIPCION']
+            }
+        };
+    }
+    _CONFIG_PARCHEADA = true;
+}

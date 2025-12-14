@@ -1,5 +1,22 @@
 /**
  * =================================================================
+ * PUNTO DE ENTRADA DE LA APLICACIÓN
+ * =================================================================
+ */
+function doGet(e) {
+    return HtmlService.createTemplateFromFile('index')
+        .evaluate()
+        .setTitle('Gestión de Comunicados')
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+        .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function include(filename) {
+    return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+/**
+ * =================================================================
  * ARCHIVO CRUD (Create, Read, Update, Delete)
  * =================================================================
  * Contiene las funciones principales para interactuar con los datos
