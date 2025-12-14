@@ -135,9 +135,9 @@ function createComunicado(data) {
             return crearRespuestaError('El comunicado no puede exceder 15 caracteres', { source: contexto });
         }
 
-        const cuentaId = String(data?.idCuenta || '').trim();
-        if (!cuentaId) {
-            return crearRespuestaError('Se requiere la cuenta asociada', { source: contexto });
+        const referenciaId = String(data?.idCuenta || data?.idReferencia || '').trim();
+        if (!referenciaId) {
+            return crearRespuestaError('Se requiere la referencia asociada', { source: contexto });
         }
 
         const distritoNombre = String(data?.distrito || '').trim();
@@ -173,7 +173,7 @@ function createComunicado(data) {
         const comunicadosExistentes = comunicadosResponse.data || [];
         const duplicado = comunicadosExistentes.find(c =>
             normalizarClave(c.comunicado) === normalizarClave(comunicadoNombre) &&
-            String(c.idCuenta) === cuentaId
+            String(c.idReferencia) === referenciaId
         );
 
         if (duplicado) {
@@ -251,7 +251,7 @@ function createComunicado(data) {
 
         const comunicadoRecord = {
             id: comunicadoId,
-            idCuenta: cuentaId,
+            idReferencia: referenciaId,
             comunicado: comunicadoNombre,
             status: 1,
             idSustituido: null
@@ -396,7 +396,7 @@ function readComunicadosPorCuenta(idCuenta) {
 
         const cuentaIdString = String(cuentaIdNumerico);
         const comunicadosFiltradosPorCuenta = (datosListas.comunicados || []).filter(com =>
-            String(com.idCuenta).trim() === cuentaIdString
+            String(com.idReferencia).trim() === cuentaIdString
         );
 
         if (comunicadosFiltradosPorCuenta.length === 0) {
@@ -425,7 +425,8 @@ function readComunicadosPorCuenta(idCuenta) {
                 id: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
                 idComunicado: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
                 idSustituido: parseNumeric(comunicado.idSustituido),
-                idCuenta: parseNumeric(cuentaActual.id) ?? cuentaIdNumerico,
+                idReferencia: parseNumeric(cuentaActual.id) ?? cuentaIdNumerico,
+                idCuenta: parseNumeric(cuentaActual.id) ?? cuentaIdNumerico, // Mantener idCuenta por si el frontend lo usa
                 cuenta: String(cuentaActual.cuenta || cuentaActual.referencia || cuentaActual.nombre || ''),
                 comunicado: String(comunicado.comunicado || ''),
                 status: comunicado.status ?? '',
@@ -517,7 +518,8 @@ function readAllComunicados() {
             return {
                 id: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
                 idComunicado: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
-                idCuenta: parseNumeric(comunicado.idCuenta),
+                idReferencia: parseNumeric(comunicado.idReferencia),
+                idCuenta: parseNumeric(comunicado.idReferencia), // Mantener idCuenta por compatibilidad
                 cuenta: String(cuenta.cuenta || cuenta.referencia || cuenta.nombre || 'Cuenta Desconocida'),
                 comunicado: String(comunicado.comunicado || ''),
                 status: comunicado.status ?? '',
@@ -665,8 +667,9 @@ function enriquecerComunicado(comunicado) {
         return {
             // Datos del comunicado
             id: comunicado.id,
-            idCuenta: comunicado.idCuenta,
-            cuenta: cuentaObj ? (cuentaObj.cuenta || cuentaObj.referencia || cuentaObj.nombre || String(comunicado.idCuenta)) : String(comunicado.idCuenta),
+            idReferencia: comunicado.idReferencia,
+            idCuenta: comunicado.idReferencia, // Compatibilidad
+            cuenta: cuentaObj ? (cuentaObj.cuenta || cuentaObj.referencia || cuentaObj.nombre || String(comunicado.idReferencia)) : String(comunicado.idReferencia),
             cuentaNombre: cuentaObj ? (cuentaObj.nombre || cuentaObj.cuenta || '') : '',
             comunicado: comunicado.comunicado,
             status: comunicado.status,
@@ -1054,13 +1057,22 @@ function procesarAltaExpress(payload) {
         const idDistrito = distritoResult.data.id;
 
         // 4. GESTIÓN DE SINIESTRO
+        let idAseguradora = payload.siniestro?.idAseguradora;
+        const nombreAseguradora = String(payload.siniestro?.nombreAseguradora || '').trim().toUpperCase();
+
+        if (!idAseguradora && nombreAseguradora) {
+            const asegResult = ensureCatalogRecord('aseguradoras', { descripción: nombreAseguradora });
+            if (!asegResult.success) return propagarRespuestaError(contexto, asegResult);
+            idAseguradora = asegResult.data.id;
+        }
+
         const siniestroNombre = String(payload.siniestro?.nombre || '').trim().toUpperCase();
         const siniestroData = {
             siniestro: siniestroNombre,
             fenomeno: payload.siniestro?.fenomeno || '',
             fi: payload.siniestro?.fi || '',
             fondo: payload.siniestro?.fondo || '',
-            idAseguradora: payload.siniestro?.idAseguradora || ''
+            idAseguradora: idAseguradora || ''
         };
         const siniestroResult = ensureCatalogRecord('siniestros', siniestroData);
         if (!siniestroResult.success) return propagarRespuestaError(contexto, siniestroResult);
@@ -1077,7 +1089,7 @@ function procesarAltaExpress(payload) {
         const todosComunicados = readAllRows('comunicados');
         if (todosComunicados.success) {
             const duplicado = todosComunicados.data.find(c =>
-                String(c.idCuenta) === String(idCuenta) &&
+                String(c.idReferencia) === String(idCuenta) &&
                 normalizarClave(c.comunicado) === normalizarClave(comunicadoNombre)
             );
             if (duplicado) {
@@ -1086,7 +1098,7 @@ function procesarAltaExpress(payload) {
         }
 
         const createComResult = createRow('comunicados', {
-            idCuenta: idCuenta,
+            idReferencia: idCuenta,
             comunicado: comunicadoNombre,
             status: 1
         });

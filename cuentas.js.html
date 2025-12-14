@@ -182,33 +182,45 @@
                     ?? com?.datosGenerales?.descripcion
                     ?? 'Sin descripción'
                 );
-                const statusRaw = com?.status ?? com?.comunicado?.status ?? '';
-                const statusLabel = escapeHtml(String(statusRaw || 'Sin estatus'));
-                const seleccionadoBadge = isSelected
-                    ? `<span class="badge text-bg-primary ms-md-2">Seleccionado</span>`
-                    : '';
+
+                // Mapeo seguro de estatus a etiqueta y color
+                const statusMap = {
+                    '1': { label: 'Activo', class: 'bg-success-subtle text-success border-success' },
+                    '0': { label: 'Cerrado', class: 'bg-secondary-subtle text-secondary border-secondary' },
+                    '2': { label: 'Pausado', class: 'bg-warning-subtle text-warning border-warning' }
+                };
+                const statusKey = String(com?.status ?? com?.comunicado?.status ?? '1');
+                const statusInfo = statusMap[statusKey] || { label: 'Desconocido', class: 'bg-light text-muted border-light' };
+
+                const fecha = escapeHtml(com?.fecha ?? '');
 
                 return `
-                <div class="card comunicado-item border ${isSelected ? 'border-primary shadow-sm' : ''}" data-id="${com.id}" style="cursor: pointer;">
-                    <div class="card-body">
-                        <div class="row align-items-center gy-2 gx-3">
-                            <div class="col-md-4">
-                                <div class="text-muted text-uppercase small">Comunicado</div>
-                                <div class="fw-semibold">${comunicadoNombre}</div>
+                <div class="card comunicado-item transition-hover mb-2 ${isSelected ? 'border-primary shadow-sm bg-primary-subtle' : 'border-light-subtle shadow-sm'}" 
+                     data-id="${com.id}" 
+                     style="cursor: pointer; border-left: 4px solid ${isSelected ? '#0d6efd' : '#dee2e6'}; transition: all 0.2s ease-in-out;">
+                    <div class="card-body py-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <h5 class="card-title fw-bold mb-0 text-primary d-flex align-items-center gap-2">
+                                    <i class="bi bi-file-earmark-text"></i> ${comunicadoNombre}
+                                </h5>
+                                <span class="text-muted small" style="font-size: 0.85rem;">${descripcion}</span>
                             </div>
-                            <div class="col-md-5">
-                                <div class="text-muted text-uppercase small">Descripción</div>
-                                <div>${descripcion}</div>
-                            </div>
-                            <div class="col-md-3 text-md-end">
-                                <div class="text-muted text-uppercase small">Status</div>
-                                <div class="d-flex justify-content-md-end align-items-center gap-2">
-                                    <span class="badge text-bg-secondary">${statusLabel}</span>
-                                    ${seleccionadoBadge}
-                                </div>
-                            </div>
+                            <span class="badge border ${statusInfo.class} rounded-pill px-3">${statusInfo.label}</span>
                         </div>
-                        <div class="text-end text-muted small mt-3">${escapeHtml(com?.fecha ?? '')}</div>
+                        
+                        <div class="d-flex align-items-center text-secondary small gap-3 mt-2">
+                            <div class="d-flex align-items-center gap-1" title="Fecha de Comunicado">
+                                <i class="bi bi-calendar-event"></i>
+                                <span>${fecha}</span>
+                            </div>
+                            <!-- Puedes agregar mas metadatos aqui si quieres -->
+                        </div>
+                        
+                        ${isSelected ? `
+                        <div class="mt-2 text-end">
+                             <span class="badge bg-primary text-white shadow-sm"><i class="bi bi-check-circle me-1"></i> Seleccionado</span>
+                        </div>` : ''}
                     </div>
                 </div>`;
             }).join('');
@@ -609,7 +621,8 @@
                     fenomeno: dom.express_siniestroFenomeno?.value?.trim().toUpperCase(),
                     fi: dom.express_siniestroFi?.value?.trim().toUpperCase(),
                     fondo: dom.express_siniestroFondo?.value?.trim().toUpperCase(),
-                    idAseguradora: dom.express_siniestroAseguradoraId?.value || ''
+                    idAseguradora: dom.express_siniestroAseguradoraId?.value || '',
+                    nombreAseguradora: dom.express_siniestroAseguradora?.value?.trim().toUpperCase()
                 }
             };
 
@@ -720,6 +733,8 @@
                     domKey = 'express_ajustador';
                 } else if (key === 'express_nombreCuenta') {
                     domKey = 'express_nombreCuenta';
+                } else if (key === 'express_siniestroAseguradora') {
+                    domKey = 'express_siniestroAseguradora';
                 } else {
                     // express_estado -> express_comunicadoEstado
                     const subKey = key.replace('express_', '');

@@ -507,17 +507,23 @@ function ensureCatalogRecord(catalogKey, data) {
             return { success: true, created: false, id: '', data: null };
         }
 
-        // Determinar el campo principal del catálogo
-        const primaryField = definition.primaryField
-            || definition.nameField
-            || Object.keys(definition.headers || {})[0];
-
-        if (!primaryField) {
-            return { success: false, message: `No se pudo determinar el campo principal del catálogo "${catalogKey}".` };
+        // Determinar el campo para búsqueda (no necesariamente el ID principal, sino el campo "nombre")
+        let searchField = 'nombre';
+        if (catalogKey === 'ajustadores') searchField = 'nombreAjustador';
+        else if (catalogKey === 'siniestros') searchField = 'siniestro';
+        else if (catalogKey === 'distritosRiego') searchField = 'distritoRiego';
+        else if (catalogKey === 'aseguradoras') searchField = 'descripción';
+        else if (catalogKey === 'comunicados') searchField = 'comunicado';
+        else if (catalogKey === 'cuentas') searchField = 'referencia';
+        else if (definition.headers) {
+            // Fallback: buscar un campo que parezca nombre
+            const headers = Array.isArray(definition.headers) ? definition.headers : Object.keys(definition.headers);
+            searchField = headers.find(h => h.toLowerCase().includes('nombre') || h.toLowerCase().includes('descrip')) || headers[1];
         }
 
-        // Obtener el valor a buscar
-        const searchValue = data[primaryField] || data.nombre || '';
+        // Obtener el valor a buscar usando el campo determinado
+        const searchValue = data[searchField] || data.nombre || data.descripcion || data.label || '';
+
         if (!searchValue || String(searchValue).trim() === '') {
             return { success: true, created: false, id: '', data: null };
         }
@@ -528,7 +534,7 @@ function ensureCatalogRecord(catalogKey, data) {
         const allRecords = readAllRows(catalogKey);
         if (allRecords.success && allRecords.data) {
             const existing = allRecords.data.find(record => {
-                const recordValue = record[primaryField] || record.nombre || '';
+                const recordValue = record[searchField] || record.nombre || '';
                 return String(recordValue).trim().toLowerCase() === normalizedSearch;
             });
 
