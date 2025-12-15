@@ -68,7 +68,11 @@ const TABLE_DEFINITIONS = {
     ajustadores: {
         sheetName: 'Ajustadores',
         primaryField: 'id',
-        headers: ['id', 'nombreAjustador', 'nombre'],
+        headers: {
+            id: ['id', 'ID'],
+            nombreAjustador: ['nombreAjustador', 'nombre', 'ajustador', 'Nombre Ajustador'],
+            nombre: 'nombre' // Fallback legacy
+        },
         requiredFields: [],
         uniqueFields: []
     },
@@ -76,7 +80,11 @@ const TABLE_DEFINITIONS = {
     aseguradoras: {
         sheetName: 'Aseguradoras',
         primaryField: 'id',
-        headers: ['id', 'descripción'],
+        headers: {
+            id: ['id', 'ID'],
+            // Mapeamos 'aseguradora' a los posibles nombres de columna
+            aseguradora: ['aseguradora', 'nombre', 'descripción', 'descripcion', 'Aseguradora']
+        },
         requiredFields: [],
         uniqueFields: []
     },

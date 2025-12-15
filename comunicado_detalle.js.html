@@ -27,7 +27,7 @@
          * Inicializa el componente
          */
         async function init(container) {
-            console.log('Iniciando ComunicadoDetalle v3.1...');
+            console.log('Iniciando ComunicadoDetalle v3.2...');
 
             _setGlobalLoader(true, 'Preparando entorno...');
 
@@ -79,8 +79,10 @@
 
             // General
             dom.genId = document.getElementById('gen-id');
+            // Referencia - Antes era gen-cuenta o gen-referencia
             dom.genCuenta = document.getElementById('gen-cuenta') || document.getElementById('gen-referencia');
             dom.genAjustador = document.getElementById('gen-ajustador');
+            dom.genAseguradora = document.getElementById('gen-aseguradora'); // Nuevo
             dom.genFecha = document.getElementById('gen-fecha');
             dom.genComunicado = document.getElementById('gen-comunicado');
             dom.genDescripcion = document.getElementById('gen-descripcion');
@@ -97,8 +99,16 @@
 
             dom.avisos = {
                 siniestro: document.getElementById('aviso-gen-siniestro'),
-                distrito: document.getElementById('aviso-gen-distrito')
+                distrito: document.getElementById('aviso-gen-distrito'),
+                ajustador: document.getElementById('aviso-gen-ajustador'),
+                aseguradora: document.getElementById('aviso-gen-aseguradora')
             };
+
+            // Dropdowns
+            dom.dropdownSiniestro = document.getElementById('dropdown-gen-siniestro-list');
+            dom.dropdownDistrito = document.getElementById('dropdown-gen-distrito-list');
+            dom.dropdownAjustador = document.getElementById('dropdown-gen-ajustador-list');
+            dom.dropdownAseguradora = document.getElementById('dropdown-gen-aseguradora-list');
 
             // Financiero
             dom.financiero = {
@@ -132,6 +142,13 @@
             };
         }
 
+        function _forceUppercase(input) {
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            input.value = input.value.toUpperCase();
+            input.setSelectionRange(start, end);
+        }
+
         function _bindEvents() {
             dom.btnVolver?.addEventListener('click', () => location.hash = '#/comunicados');
             dom.btnGuardar?.addEventListener('click', _guardarTodo);
@@ -140,15 +157,24 @@
             dom.equipo.btnAddContratista?.addEventListener('click', () => _addEquipo('contratista'));
             dom.equipo.btnAddSupervisor?.addEventListener('click', () => _addEquipo('supervisor'));
             dom.tickets.btnAdd?.addEventListener('click', _addTicket);
+
+            // Force Uppercase for standard inputs
+            [dom.genComunicado, dom.genDescripcion].forEach(el => {
+                if (el) el.addEventListener('input', () => _forceUppercase(el));
+            });
         }
 
         async function _loadData() {
             try {
                 const catalogsResponse = await serverCall('fetchComunicadoCatalogs');
-                if (catalogsResponse?.success) {
-                    state.catalogs = catalogsResponse.data;
+
+                if (catalogsResponse) {
+                    state.catalogs = catalogsResponse;
                     _poblarCatalogosUI();
+                } else {
+                    console.warn('fetchComunicadoCatalogs retornó nulo o indefinido');
                 }
+
                 const dataResponse = await serverCall('getComunicadoCompleto', state.id);
                 if (dataResponse) {
                     state.data = _sanitizeData(dataResponse);
@@ -171,21 +197,59 @@
         }
 
         function _poblarCatalogosUI() {
-            if (dom.genEstado && state.catalogs.estados) {
-                dom.genEstado.innerHTML = '<option value="">Seleccione...</option>';
-                state.catalogs.estados.forEach(est => {
-                    const opt = document.createElement('option');
-                    opt.value = est.id;
-                    opt.textContent = est.estado || est.nombre;
-                    dom.genEstado.appendChild(opt);
-                });
+            try {
+                console.log('Inicio _poblarCatalogosUI. Catalogs:', state.catalogs ? Object.keys(state.catalogs) : 'null');
+
+                if (dom.genEstado && state.catalogs.estados) {
+                    try {
+                        dom.genEstado.innerHTML = '<option value="">Seleccione...</option>';
+                        state.catalogs.estados.forEach(est => {
+                            const opt = document.createElement('option');
+                            opt.value = est.id;
+                            opt.textContent = est.estado || est.nombre;
+                            dom.genEstado.appendChild(opt);
+                        });
+                    } catch (e) {
+                        console.error('Error poblando estados:', e);
+                    }
+                }
+
+                try {
+                    _setupCombobox(dom.genSiniestro, dom.dropdownSiniestro, state.catalogs.siniestros || [], 'siniestro',
+                        (item) => { dom.genSiniestro.value = item.siniestro; _onSiniestroChange(item); },
+                        dom.avisos.siniestro
+                    );
+                } catch (e) { console.error('Error setupCombobox Siniestro:', e); }
+
+                try {
+                    _setupCombobox(dom.genDistrito, dom.dropdownDistrito, state.catalogs.distritosRiego || [], 'distritoRiego',
+                        (item) => dom.genDistrito.value = item.distritoRiego,
+                        dom.avisos.distrito
+                    );
+                } catch (e) { console.error('Error setupCombobox Distrito:', e); }
+
+                try {
+                    _setupCombobox(dom.genAjustador, dom.dropdownAjustador, state.catalogs.ajustadores || [], 'nombreAjustador',
+                        (item) => {
+                            dom.genAjustador.value = item.nombreAjustador || item.nombre;
+                        },
+                        dom.avisos.ajustador
+                    );
+                    console.log('Catalogos UI poblados. Ajustadores:', state.catalogs.ajustadores?.length);
+                } catch (e) { console.error('Error setupCombobox Ajustador:', e); }
+
+                try {
+                    _setupCombobox(dom.genAseguradora, dom.dropdownAseguradora, state.catalogs.aseguradoras || [], 'aseguradora',
+                        (item) => {
+                            dom.genAseguradora.value = item.aseguradora || item.nombre;
+                        },
+                        dom.avisos.aseguradora
+                    );
+                } catch (e) { console.error('Error setupCombobox Aseguradora:', e); }
+
+            } catch (err) {
+                console.error('Error FATAL en _poblarCatalogosUI:', err);
             }
-            _setupCombobox(dom.genSiniestro, dom.dropdownSiniestro, state.catalogs.siniestros || [], 'siniestro',
-                (item) => { dom.genSiniestro.value = item.siniestro; _onSiniestroChange(item); }
-            );
-            _setupCombobox(dom.genDistrito, dom.dropdownDistrito, state.catalogs.distritosRiego || [], 'distritoRiego',
-                (item) => dom.genDistrito.value = item.distritoRiego
-            );
         }
 
         function _renderData() {
@@ -208,18 +272,21 @@
 
             // AJUSTADOR (Solo Lectura - Heredado de Cuenta)
             // Backend ahora envía d.ajustador = { id, nombre }
-            const nombreAjustador = d.ajustador?.nombre || d.ajustadorNombre || 'Sin Ajustador Asignado';
+
 
             if (dom.genAjustador) {
-                if (dom.genAjustador.tagName === 'SELECT') {
-                    // Si quedó como select, lo forzamos a mostrar solo el valor actual
-                    dom.genAjustador.innerHTML = `<option selected>${nombreAjustador}</option>`;
-                    dom.genAjustador.disabled = true;
-                } else {
-                    dom.genAjustador.value = nombreAjustador;
-                    dom.genAjustador.readOnly = true;
+                // Prioridad: 1. Ajustador del objeto datosGenerales (enriquecido y populado en 'ajustador')
+                //            2. Ajustador heredado de la cuenta/referencia (si existiera)
+                //            3. Ajustador por nombre directo
+                let nombreAjustadorReal = '';
+
+                if (d.ajustador && d.ajustador.nombreAjustador) {
+                    nombreAjustadorReal = d.ajustador.nombreAjustador;
+                } else if (d.ajustadorNombre) {
+                    nombreAjustadorReal = d.ajustadorNombre;
                 }
-                dom.genAjustador.classList.add('bg-light', 'text-dark', 'fw-bold');
+
+                dom.genAjustador.value = nombreAjustadorReal;
             }
 
             dom.genFecha.value = _formatDateISO(d.fecha);
@@ -228,12 +295,27 @@
             if (d.idEstado) dom.genEstado.value = d.idEstado;
             _setComboboxValue(dom.genDistrito, d.distrito, 'distritoRiego');
             _setComboboxValue(dom.genSiniestro, d.siniestro, 'siniestro');
+
+            // Aseguradora
+            if (dom.genAseguradora) {
+                const asegNombre = d.siniestroDetalle?.aseguradora || 'Sin Aseguradora';
+                dom.genAseguradora.value = asegNombre;
+            }
+
+            // Datos del Siniestro Detallados
+            if (dom.genFenomeno) dom.genFenomeno.value = d.siniestroDetalle?.fenomeno || '';
+            if (dom.genFondo) dom.genFondo.value = d.siniestroDetalle?.fondo || '';
+            if (dom.genFi) dom.genFi.value = d.siniestroDetalle?.fi || ''; // Ahora "Fecha Incidencia"
             if (d.siniestro) _onSiniestroChange(d.siniestro);
 
             _renderPresupuesto();
             _renderEquipo();
             _renderFinanciero();
             _renderTickets();
+
+            // Mostrar contenido principal
+            const content = document.getElementById('detalle-content');
+            if (content) content.classList.remove('d-none');
         }
 
         // --- FINANCIERO (Unificado) ---
@@ -426,36 +508,103 @@
             const val = (obj && typeof obj === 'object') ? obj[prop] : (obj || '');
             input.value = val || '';
         }
-        function _setupCombobox(input, dropdown, items, keyProp, onSelect) {
+        function _setupCombobox(input, dropdown, items, keyProp, onSelect, alertElement = null) {
             if (!input || !dropdown) return;
+            const safeItems = Array.isArray(items) ? items : [];
+
+            // Referencia a instancia bootstrap
+            let dropdownInstance = null;
+
+            const getDropdownInstance = () => {
+                if (dropdownInstance) return dropdownInstance;
+                if (window.bootstrap && window.bootstrap.Dropdown) {
+                    try {
+                        dropdownInstance = bootstrap.Dropdown.getInstance(input) || new bootstrap.Dropdown(input, { autoClose: 'outside' });
+                    } catch (e) { console.warn('Bootstrap error:', e); }
+                }
+                return dropdownInstance;
+            };
+
             const renderList = (filter = '') => {
                 dropdown.innerHTML = '';
-                const term = filter.toLowerCase();
-                const filtered = items.filter(i => (i[keyProp] || i.nombre || '').toLowerCase().includes(term));
-                if (filtered.length === 0) {
+                const term = (filter || '').toLowerCase();
+                const filtered = term
+                    ? safeItems.filter(i => {
+                        const val = i[keyProp] || i.nombre || '';
+                        return String(val).toLowerCase().includes(term);
+                    })
+                    : safeItems;
+
+                const displayItems = filtered.slice(0, 50);
+
+                if (displayItems.length === 0) {
                     dropdown.innerHTML = '<li class="dropdown-item text-muted disabled">Sin resultados</li>';
                 } else {
-                    filtered.forEach(item => {
+                    displayItems.forEach(item => {
                         const li = document.createElement('li');
                         const a = document.createElement('a');
                         a.className = 'dropdown-item';
                         a.href = '#';
-                        a.textContent = item[keyProp] || item.nombre;
-                        a.onclick = (e) => { e.preventDefault(); onSelect(item); };
+                        a.textContent = item[keyProp] || item.nombre || 'Sin Nombre';
+                        a.onclick = (e) => {
+                            e.preventDefault();
+                            onSelect(item);
+                            const instance = getDropdownInstance();
+                            if (instance) instance.hide();
+                            else dropdown.classList.remove('show');
+
+                            // Ocultar alerta al seleccionar existente
+                            if (alertElement) alertElement.classList.add('d-none');
+                        };
                         li.appendChild(a);
                         dropdown.appendChild(li);
                     });
                 }
             };
-            input.addEventListener('input', () => {
+
+            const showDropdown = () => {
                 renderList(input.value);
-                new bootstrap.Dropdown(input).show();
-                if (dom.avisos[keyProp]) {
-                    const exactMatch = items.some(i => (i[keyProp] || '').toLowerCase() === input.value.toLowerCase());
-                    dom.avisos[keyProp].classList.toggle('d-none', exactMatch || !input.value);
+                const instance = getDropdownInstance();
+                if (instance) {
+                    instance.show();
+                } else {
+                    // Fallback sin bootstrap
+                    dropdown.classList.add('show');
+                    dropdown.style.display = 'block';
+                }
+            };
+
+            input.addEventListener('input', () => {
+                // Force Uppercase
+                _forceUppercase(input);
+
+                const instance = getDropdownInstance();
+                if (instance) instance.show();
+                else { dropdown.classList.add('show'); dropdown.style.display = 'block'; }
+
+                renderList(input.value);
+
+                if (alertElement) {
+                    const val = input.value.trim().toLowerCase();
+                    if (!val) {
+                        alertElement.classList.add('d-none');
+                    } else {
+                        const exactMatch = safeItems.some(i => String(i[keyProp] || i.nombre || '').toLowerCase() === val);
+                        alertElement.classList.toggle('d-none', exactMatch);
+                    }
                 }
             });
-            input.addEventListener('focus', () => renderList(input.value));
+
+            input.addEventListener('focus', showDropdown);
+            input.addEventListener('click', showDropdown);
+
+            input.addEventListener('blur', () => {
+                setTimeout(() => {
+                    const instance = getDropdownInstance();
+                    if (instance) instance.hide();
+                    else { dropdown.classList.remove('show'); dropdown.style.display = 'none'; }
+                }, 200);
+            });
         }
 
         function _onSiniestroChange(itemOrString) {
@@ -515,7 +664,9 @@
                     presupuesto: state.data.presupuesto,
                     equipo: state.data.equipo,
                     financiero: state.data.financiero,
-                    tickets: state.data.tickets
+                    tickets: state.data.tickets,
+                    ajustador: dom.genAjustador.value,
+                    aseguradora: dom.genAseguradora.value // Include Aseguradora
                 };
                 await serverCall('updateComunicado', state.id, payload);
                 alert('Guardado exitosamente.');
@@ -541,6 +692,8 @@
 
         return {
             init,
+            mount: (container) => init(container), // Alias para mount
+            render: () => '<div id="comunicado-detalle-container"></div>', // Método render requerido
             updateFinanciero, removeFinanciero,
             updatePresupuesto, removePresupuesto,
             updateEquipo, removeEquipo,

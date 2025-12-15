@@ -581,78 +581,11 @@
         }
 
         /**
-         * Abre el modal de edición rápida
+         * Abre el detalle del comunicado (Redirección unificada)
+         * Se mantiene el nombre abrirModal por compatibilidad con onclick HTML
          */
-        async function abrirModal(idComunicado) {
-            if (!idComunicado || !modalInstance) return;
-
-            try {
-                // Mostrar el modal con loader
-                if (dom.modalLoader) dom.modalLoader.classList.remove('d-none');
-                if (dom.modalContent) dom.modalContent.classList.add('d-none');
-                if (dom.modalError) dom.modalError.classList.add('d-none');
-
-                modalInstance.show();
-
-                // Cargar los datos del comunicado
-                const detalle = await serverCall('getComunicadoCompleto', idComunicado);
-
-                if (detalle) {
-                    comunicadoActual = detalle;
-
-                    // Poblar el formulario
-                    document.getElementById('detalle-comunicado').value = detalle.comunicado || '';
-                    document.getElementById('detalle-fecha').value = _formatearFechaInput(detalle.fecha);
-                    document.getElementById('detalle-estado').value = detalle.idEstado || '';
-                    document.getElementById('detalle-descripcion').value = detalle.descripcion || '';
-
-                    // CUENTA - puede venir como objeto o string
-                    const cuentaValor = typeof detalle.cuenta === 'object'
-                        ? (detalle.cuenta?.nombre || detalle.cuenta?.cuenta || detalle.idCuenta || '')
-                        : (detalle.cuenta || detalle.idCuenta || '');
-                    document.getElementById('detalle-cuenta').value = cuentaValor;
-
-                    // DISTRITO - puede venir como objeto o string
-                    const distritoValor = typeof detalle.distrito === 'object'
-                        ? (detalle.distrito?.distritoRiego || detalle.distrito?.nombre || '')
-                        : (detalle.distrito || '');
-                    document.getElementById('detalle-distrito').value = distritoValor;
-
-                    // SINIESTRO - puede venir como objeto o string
-                    const siniestroValor = typeof detalle.siniestro === 'object'
-                        ? (detalle.siniestro?.siniestro || detalle.siniestro?.nombre || '')
-                        : (detalle.siniestro || '');
-                    document.getElementById('detalle-siniestro').value = siniestroValor;
-
-                    // Actualizar detalles del siniestro si existe
-                    if (siniestroValor && state.catalogs.siniestros) {
-                        const siniestroNormalizado = String(siniestroValor).toLowerCase().trim();
-                        const s = state.catalogs.siniestros.find(x => {
-                            const valorX = String(x.siniestro || x.nombre || '').toLowerCase().trim();
-                            return valorX === siniestroNormalizado;
-                        });
-                        if (s) {
-                            document.getElementById('detalle-fenomeno').value = s.fenomeno || '';
-                            document.getElementById('detalle-fondo').value = s.fondo || '';
-                            document.getElementById('detalle-fi').value = s.fi || '';
-                        }
-                    }
-
-                    // Mostrar el contenido
-                    if (dom.modalLoader) dom.modalLoader.classList.add('d-none');
-                    if (dom.modalContent) dom.modalContent.classList.remove('d-none');
-
-                    // Iniciar en modo lectura
-                    _toggleEdicion(false);
-                }
-            } catch (error) {
-                console.error('Error cargando detalle en modal:', error);
-                if (dom.modalLoader) dom.modalLoader.classList.add('d-none');
-                if (dom.modalError) {
-                    dom.modalError.textContent = 'Error al cargar los datos: ' + error.message;
-                    dom.modalError.classList.remove('d-none');
-                }
-            }
+        function abrirModal(idComunicado) {
+            verDetalle(idComunicado);
         }
 
         /**

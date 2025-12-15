@@ -578,13 +578,23 @@ function enriquecerComunicado(comunicado) {
             aseguradoraSiniestro = aseResult.success ? aseResult.data : null;
         }
 
-        // NUEVO: Leer ajustador
-        const ajustadorResult = buscarPorId('ajustadores', datosGenerales.idAjustador);
-        const ajustador = ajustadorResult.success ? ajustadorResult.data : null;
+        // NUEVO: Leer ajustador (Prioridad: ID en Datos Generales o ID en Referencia)
+        // 1. Intentar obtener ID desde Datos Generales
+        let idAjustadorFinal = datosGenerales.idAjustador;
 
-        // Buscar cuenta asociada
-        const cuentaResult = buscarPorId('cuentas', comunicado.idCuenta);
+        // 2. Si no está en DG, intentar obtenerlo de la Referencia ("Cuenta")
+        const cuentaResult = buscarPorId('cuentas', comunicado.idReferencia || comunicado.idCuenta);
         const cuentaObj = cuentaResult.success ? cuentaResult.data : null;
+
+        if (!idAjustadorFinal && cuentaObj && cuentaObj.idAjustador) {
+            idAjustadorFinal = cuentaObj.idAjustador;
+        }
+
+        let ajustador = null;
+        if (idAjustadorFinal) {
+            const ajustadorResult = buscarPorId('ajustadores', idAjustadorFinal);
+            ajustador = ajustadorResult.success ? ajustadorResult.data : null;
+        }
 
         // Leer actualización vigente
         let actualizacionVigente = null;
@@ -669,6 +679,7 @@ function enriquecerComunicado(comunicado) {
             id: comunicado.id,
             idReferencia: comunicado.idReferencia,
             idCuenta: comunicado.idReferencia, // Compatibilidad
+            referencia: cuentaObj ? (cuentaObj.referencia || cuentaObj.cuenta || cuentaObj.nombre || String(comunicado.idReferencia)) : String(comunicado.idReferencia),
             cuenta: cuentaObj ? (cuentaObj.cuenta || cuentaObj.referencia || cuentaObj.nombre || String(comunicado.idReferencia)) : String(comunicado.idReferencia),
             cuentaNombre: cuentaObj ? (cuentaObj.nombre || cuentaObj.cuenta || '') : '',
             comunicado: comunicado.comunicado,
@@ -699,11 +710,10 @@ function enriquecerComunicado(comunicado) {
                 idAseguradora: siniestro.idAseguradora || null,
                 aseguradora: aseguradoraSiniestro ? (aseguradoraSiniestro.aseguradora || aseguradoraSiniestro.nombre || '') : ''
             } : null,
-
-            // NUEVO: Ajustador
-            idAjustador: datosGenerales.idAjustador,
+            // NUEVO: Ajustador (Prioridad: DatosGenerales > Referencia)
+            idAjustador: datosGenerales.idAjustador || (cuentaObj ? cuentaObj.idAjustador : null),
             ajustador: ajustador,
-            ajustadorNombre: ajustador ? ajustador.nombreAjustador : '',
+            ajustadorNombre: ajustador ? (ajustador.nombreAjustador || ajustador.nombre) : 'Sin Ajustador',
 
             // Actualización y empresa
             idActualizacion: datosGenerales.idActualizacion,
@@ -757,9 +767,57 @@ function updateComunicado(id, updates) {
             return propagarRespuestaError(contexto, datosGeneralesResult);
         }
         const datosGenerales = datosGeneralesResult.data;
+        const comunicado = comunicadoResult.data;
 
-        // 2. Procesar actualizaciones
-        // Actualizar tabla 'comunicados'
+        // 2. BUSCAR ENTIDADES RELACIONADAS (Cuenta y Siniestro)
+        const cuentaResult = buscarPorId('cuentas', comunicado.idReferencia);
+        if (!cuentaResult.success) console.warn('Cuenta no encontrada para actualizar ajustador');
+        const cuenta = cuentaResult.data;
+
+        // --- LÓGICA DE ACTUALIZACIÓN EN CADENA ---
+
+        // A) GESTIÓN DE AJUSTADOR (Ajustador -> Referencia)
+        if (updates.ajustador) {
+            const nombreAjustador = String(updates.ajustador).trim().toUpperCase();
+            if (nombreAjustador) {
+                // 1. Asegurar catálogo Ajustadores
+                const ajResult = ensureCatalogRecord('ajustadores', { nombreAjustador: nombreAjustador });
+                if (ajResult.success && ajResult.data.id) {
+                    // 2. Actualizar Referencia (Tabla Cuentas) si existe
+                    if (cuenta) {
+                        actualizarRegistro('cuentas', cuenta.id, { idAjustador: ajResult.data.id });
+                    }
+                    // Opcional: Actualizar idAjustador en datosGenerales (redundancia útil)
+                    updates.idAjustador = ajResult.data.id;
+                }
+            }
+        }
+
+        // B) GESTIÓN DE ASEGURADORA (Aseguradora -> Siniestro)
+        let idSiniestroFinal = datosGenerales.idSiniestro; // ID actual
+
+        // Primero revisamos si hay cambio de Siniestro explícito (el usuario seleccionó otro)
+        if (updates.siniestro) {
+            const sinResult = ensureCatalogRecord('siniestros', { siniestro: String(updates.siniestro).trim().toUpperCase() });
+            if (sinResult.success && sinResult.data && sinResult.data.id) {
+                idSiniestroFinal = sinResult.data.id;
+            }
+        }
+
+        // Luego revisamos si hay cambio de Aseguradora
+        if (updates.aseguradora) {
+            const nombreAseg = String(updates.aseguradora).trim().toUpperCase();
+            if (nombreAseg && idSiniestroFinal) {
+                // 1. Asegurar catálogo Aseguradoras
+                const aseResult = ensureCatalogRecord('aseguradoras', { aseguradora: nombreAseg });
+                if (aseResult.success && aseResult.data && aseResult.data.id) {
+                    // 2. Actualizar Tabla Siniestros
+                    actualizarRegistro('siniestros', idSiniestroFinal, { idAseguradora: aseResult.data.id });
+                }
+            }
+        }
+
+        // C) ACTUALIZAR COMUNICADO (Tabla principal)
         if (updates.comunicado) {
             const updateComResult = actualizarRegistro('comunicados', comunicadoId, { comunicado: updates.comunicado });
             if (!updateComResult.success) {
@@ -767,26 +825,19 @@ function updateComunicado(id, updates) {
             }
         }
 
-        // Actualizar tabla 'datosGenerales'
+        // D) ACTUALIZAR DATOS GENERALES
         const updatesDatosGenerales = {};
         if (updates.descripcion) updatesDatosGenerales.descripcion = updates.descripcion;
         if (updates.fecha) updatesDatosGenerales.fecha = updates.fecha;
         if (updates.idEstado) updatesDatosGenerales.idEstado = updates.idEstado;
-        if (updates.idAjustador) updatesDatosGenerales.idAjustador = updates.idAjustador; // NUEVO
+        if (updates.idAjustador) updatesDatosGenerales.idAjustador = updates.idAjustador;
+        if (idSiniestroFinal) updatesDatosGenerales.idSiniestro = idSiniestroFinal;
 
-        // Manejo de catálogos (Distrito y Siniestro)
+        // Manejo de Distrito
         if (updates.distrito) {
             const distritoResult = ensureCatalogRecord('distritosRiego', { distritoRiego: updates.distrito });
             if (distritoResult.success && distritoResult.data && distritoResult.data.id) {
                 updatesDatosGenerales.idDR = distritoResult.data.id;
-            }
-        }
-        if (updates.siniestro) {
-            const siniestroResult = ensureCatalogRecord('siniestros', {
-                siniestro: updates.siniestro
-            });
-            if (siniestroResult.success && siniestroResult.data && siniestroResult.data.id) {
-                updatesDatosGenerales.idSiniestro = siniestroResult.data.id;
             }
         }
 

@@ -62,31 +62,26 @@
 
                     <!-- TAB: GENERAL -->
                     <div class="tab-pane fade show active" id="tab-general" role="tabpanel">
+
+                        <!-- GRUPO 1: DATOS DEL COMUNICADO -->
                         <div class="card shadow-sm border-0 mb-4">
                             <div class="card-header bg-white py-3">
-                                <h6 class="mb-0 fw-bold">Datos Básicos del Comunicado</h6>
+                                <h6 class="mb-0 fw-bold">1. Datos del Comunicado</h6>
                             </div>
                             <div class="card-body">
                                 <form id="form-general">
                                     <div class="row g-3">
                                         <!-- ID Oculto -->
-                                        <div class="col-md-4 d-none">
-                                            <label class="form-label small text-muted">ID Comunicado</label>
-                                            <input type="text" class="form-control bg-light" id="gen-id" readonly>
+                                        <div class="d-none">
+                                            <input type="text" id="gen-id" readonly>
                                         </div>
-                                        <!-- Fila 1: Cuenta + Ajustador -->
-                                        <div class="col-md-4">
+
+                                        <!-- Fila 1: Comunicado / Fecha de registro -->
+                                        <div class="col-md-8">
                                             <label class="form-label small text-muted">
-                                                <i class="bi bi-building me-1"></i>Referencia
+                                                <i class="bi bi-file-earmark-text me-1"></i>Comunicado
                                             </label>
-                                            <input type="text" class="form-control fw-bold" id="gen-cuenta" readonly>
-                                        </div>
-                                        <div class="col-md-4">
-                                            <label class="form-label small text-muted">
-                                                <i class="bi bi-person-badge me-1"></i>Ajustador (Asignado)
-                                            </label>
-                                            <input type="text" class="form-control bg-light" id="gen-ajustador"
-                                                readonly>
+                                            <input type="text" class="form-control fw-bold fs-5" id="gen-comunicado">
                                         </div>
                                         <div class="col-md-4">
                                             <label class="form-label small text-muted">
@@ -94,14 +89,8 @@
                                             </label>
                                             <input type="date" class="form-control" id="gen-fecha">
                                         </div>
-                                        <!-- Fila 2: Comunicado -->
-                                        <div class="col-12">
-                                            <label class="form-label small text-muted">
-                                                <i class="bi bi-file-earmark-text me-1"></i>Comunicado
-                                            </label>
-                                            <input type="text" class="form-control fw-bold" id="gen-comunicado">
-                                        </div>
-                                        <!-- Fila 3: Descripción -->
+
+                                        <!-- Fila 2: Descripción Detallada -->
                                         <div class="col-12">
                                             <label class="form-label small text-muted">
                                                 <i class="bi bi-card-text me-1"></i>Descripción Detallada
@@ -113,21 +102,48 @@
                             </div>
                         </div>
 
-                        <div class="card shadow-sm border-0">
+                        <!-- GRUPO 2: DATOS DEL AJUSTADOR -->
+                        <div class="card shadow-sm border-0 mb-4">
                             <div class="card-header bg-white py-3">
-                                <h6 class="mb-0 fw-bold">Ubicación y Clasificación</h6>
+                                <h6 class="mb-0 fw-bold">2. Datos del Ajustador</h6>
                             </div>
                             <div class="card-body">
                                 <div class="row g-3">
-                                    <!-- Fila 1: Estado -->
-                                    <div class="col-md-12">
-                                        <label class="form-label small text-muted">Estado</label>
-                                        <select class="form-select" id="gen-estado">
-                                            <option value="">Cargando...</option>
-                                        </select>
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted">
+                                            <i class="bi bi-building me-1"></i>Referencia
+                                        </label>
+                                        <input type="text" class="form-control bg-light" id="gen-cuenta" readonly>
                                     </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted">
+                                            <i class="bi bi-person-badge me-1"></i>Ajustador
+                                        </label>
+                                        <div class="position-relative">
+                                            <input type="text" class="form-select fw-bold" id="gen-ajustador"
+                                                placeholder="Escribir o seleccionar..." autocomplete="off"
+                                                data-bs-toggle="dropdown" aria-expanded="false"
+                                                style="cursor: pointer;">
+                                            <ul class="dropdown-menu w-100" id="dropdown-gen-ajustador-list"
+                                                style="max-height: 250px; overflow-y: auto;">
+                                            </ul>
+                                        </div>
+                                        <div id="aviso-gen-ajustador" class="form-text text-warning d-none small mt-1">
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i> Nuevo Ajustador - Se
+                                            creará al guardar.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-                                    <!-- Fila 2: Siniestro (50%) + Fenómeno (50%) -->
+                        <!-- GRUPO 3: DATOS DE LA ASEGURADORA -->
+                        <div class="card shadow-sm border-0 mb-4">
+                            <div class="card-header bg-white py-3">
+                                <h6 class="mb-0 fw-bold">3. Datos de la Aseguradora</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-3">
                                     <div class="col-md-6">
                                         <label class="form-label small text-muted">Siniestro</label>
                                         <div class="position-relative">
@@ -137,48 +153,66 @@
                                                 style="cursor: pointer;">
                                             <ul class="dropdown-menu w-100" id="dropdown-gen-siniestro-list"
                                                 style="max-height: 250px; overflow-y: auto;">
-                                                <!-- Se llena dinámicamente -->
                                             </ul>
                                         </div>
                                         <div id="aviso-gen-siniestro" class="form-text text-warning d-none small mt-1">
-                                            <i class="bi bi-exclamation-triangle-fill me-1"></i><strong>Siniestro
-                                                nuevo:</strong> Complete Fenómeno, FI y Fondo.
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i> Nuevo Siniestro
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted"> <i
+                                                class="bi bi-shield-check me-1"></i>Aseguradora</label>
+                                        <div class="position-relative">
+                                            <input type="text" class="form-select fw-bold" id="gen-aseguradora"
+                                                placeholder="Escribir o seleccionar..." autocomplete="off"
+                                                data-bs-toggle="dropdown" aria-expanded="false"
+                                                style="cursor: pointer;">
+                                            <ul class="dropdown-menu w-100" id="dropdown-gen-aseguradora-list"
+                                                style="max-height: 250px; overflow-y: auto;">
+                                            </ul>
+                                        </div>
+                                        <div id="aviso-gen-aseguradora"
+                                            class="form-text text-warning d-none small mt-1">
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i> Nueva Aseguradora - Se
+                                            creará al guardar.
                                         </div>
                                     </div>
 
-                                    <div class="col-md-6">
+                                    <!-- Fila 5: Fenómeno (Full width to separate logical groups slightly, or can be 12 col) -->
+                                    <div class="col-12">
                                         <label class="form-label small text-muted">Fenómeno</label>
-                                        <input type="text" class="form-control bg-light" id="gen-fenomeno" readonly
-                                            placeholder="Auto-completo desde siniestro">
-                                        <div id="aviso-gen-fenomeno" class="form-text text-info d-none small mt-1">
-                                            <i class="bi bi-info-circle-fill me-1"></i>Campo requerido para siniestro
-                                            nuevo
-                                        </div>
+                                        <input type="text" class="form-control bg-light" id="gen-fenomeno" readonly>
                                     </div>
 
-                                    <!-- Fila 3: FI (50%) + Fondo (50%) -->
+                                    <!-- Fila 6: Fecha de incidencia / Fondo -->
                                     <div class="col-md-6">
-                                        <label class="form-label small text-muted">F.I.</label>
+                                        <label class="form-label small text-muted">Fecha de Incidencia (FI)</label>
                                         <input type="text" class="form-control bg-light" id="gen-fi" readonly
-                                            placeholder="Auto-completo">
-                                        <div id="aviso-gen-fi" class="form-text text-info d-none small mt-1">
-                                            <i class="bi bi-info-circle-fill me-1"></i>Campo requerido para siniestro
-                                            nuevo
-                                        </div>
+                                            placeholder="Fecha o FI">
                                     </div>
-
                                     <div class="col-md-6">
                                         <label class="form-label small text-muted">Fondo</label>
-                                        <input type="text" class="form-control bg-light" id="gen-fondo" readonly
-                                            placeholder="Auto-completo">
-                                        <div id="aviso-gen-fondo" class="form-text text-info d-none small mt-1">
-                                            <i class="bi bi-info-circle-fill me-1"></i>Campo requerido para siniestro
-                                            nuevo
-                                        </div>
+                                        <input type="text" class="form-control bg-light" id="gen-fondo" readonly>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
 
-                                    <!-- Fila 4: Distrito de Riego (100%) -->
-                                    <div class="col-12">
+                        <!-- GRUPO 4: UBICACIÓN -->
+                        <div class="card shadow-sm border-0">
+                            <div class="card-header bg-white py-3">
+                                <h6 class="mb-0 fw-bold">4. Ubicación</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-3">
+                                    <!-- Fila 7: Estado / Distrito de riego -->
+                                    <div class="col-md-6">
+                                        <label class="form-label small text-muted">Estado</label>
+                                        <select class="form-select" id="gen-estado">
+                                            <option value="">Cargando...</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
                                         <label class="form-label small text-muted">Distrito de Riego</label>
                                         <div class="position-relative">
                                             <input type="text" class="form-select" id="gen-distrito"
@@ -187,12 +221,10 @@
                                                 style="cursor: pointer;">
                                             <ul class="dropdown-menu w-100" id="dropdown-gen-distrito-list"
                                                 style="max-height: 250px; overflow-y: auto;">
-                                                <!-- Se llena dinámicamente -->
                                             </ul>
                                         </div>
                                         <div id="aviso-gen-distrito" class="form-text text-warning d-none small mt-1">
-                                            <i class="bi bi-exclamation-triangle-fill me-1"></i><strong>Distrito
-                                                nuevo:</strong> Se agregará a la base de datos.
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i> Nuevo Distrito
                                         </div>
                                     </div>
                                 </div>
