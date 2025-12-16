@@ -159,7 +159,7 @@
             dom.tickets.btnAdd?.addEventListener('click', _addTicket);
 
             // Force Uppercase for standard inputs
-            [dom.genComunicado, dom.genDescripcion].forEach(el => {
+            [dom.genComunicado, dom.genDescripcion, dom.genFenomeno, dom.genFi, dom.genFondo].forEach(el => {
                 if (el) el.addEventListener('input', () => _forceUppercase(el));
             });
         }
@@ -217,7 +217,11 @@
                 try {
                     _setupCombobox(dom.genSiniestro, dom.dropdownSiniestro, state.catalogs.siniestros || [], 'siniestro',
                         (item) => { dom.genSiniestro.value = item.siniestro; _onSiniestroChange(item); },
-                        dom.avisos.siniestro
+                        dom.avisos.siniestro,
+                        (val, match) => {
+                            if (match) _onSiniestroChange(match);
+                            else _onSiniestroChange(null);
+                        }
                     );
                 } catch (e) { console.error('Error setupCombobox Siniestro:', e); }
 
@@ -508,11 +512,12 @@
             const val = (obj && typeof obj === 'object') ? obj[prop] : (obj || '');
             input.value = val || '';
         }
-        function _setupCombobox(input, dropdown, items, keyProp, onSelect, alertElement = null) {
+        function _setupCombobox(input, dropdown, items, keyProp, onSelect, alertElement = null, onInputHandler = null) {
             if (!input || !dropdown) return;
             const safeItems = Array.isArray(items) ? items : [];
 
             // Referencia a instancia bootstrap
+
             let dropdownInstance = null;
 
             const getDropdownInstance = () => {
@@ -584,14 +589,22 @@
 
                 renderList(input.value);
 
+                const val = input.value.trim().toLowerCase();
+                let exactMatchItem = null;
+                if (val) {
+                    exactMatchItem = safeItems.find(i => String(i[keyProp] || i.nombre || '').toLowerCase() === val);
+                }
+
                 if (alertElement) {
-                    const val = input.value.trim().toLowerCase();
                     if (!val) {
                         alertElement.classList.add('d-none');
                     } else {
-                        const exactMatch = safeItems.some(i => String(i[keyProp] || i.nombre || '').toLowerCase() === val);
-                        alertElement.classList.toggle('d-none', exactMatch);
+                        alertElement.classList.toggle('d-none', !!exactMatchItem);
                     }
+                }
+
+                if (onInputHandler) {
+                    onInputHandler(input.value, exactMatchItem);
                 }
             });
 
@@ -614,10 +627,29 @@
                 dom.genFenomeno.value = itemOrString.fenomeno || '';
                 dom.genFi.value = itemOrString.fi || '';
                 dom.genFondo.value = itemOrString.fondo || '';
-                fields.forEach(f => { if (f) f.disabled = true; });
+
+                // Logic to set Aseguradora from Siniestro
+                if (dom.genAseguradora) {
+                    let asegName = itemOrString.aseguradora || '';
+                    if (!asegName && itemOrString.idAseguradora && state.catalogs.aseguradoras) {
+                        const match = state.catalogs.aseguradoras.find(a => String(a.id) === String(itemOrString.idAseguradora));
+                        if (match) asegName = match.aseguradora || match.nombre || '';
+                    }
+                    dom.genAseguradora.value = asegName;
+                    // Keep custom aseguradora editable even if derived? User said "fields linked", 
+                    // usually implying read-only, but for Aseguradora they said "leave blank to choose".
+                    // If populated, maybe we leave it enabled? I'll leave it enabled as per previous logic (it wasn't in 'fields' array).
+                }
+
+                // Habilitar campos siempre, para permitir correcciones
+                fields.forEach(f => { if (f) f.disabled = false; });
                 if (dom.avisos.siniestro) dom.avisos.siniestro.classList.add('d-none');
             } else {
                 fields.forEach(f => { if (f) { f.disabled = false; f.value = ''; } });
+                if (dom.genAseguradora) {
+                    dom.genAseguradora.value = '';
+                    dom.genAseguradora.disabled = false;
+                }
             }
         }
 
@@ -661,6 +693,9 @@
                     idEstado: dom.genEstado.value,
                     distrito: dom.genDistrito.value,
                     siniestro: dom.genSiniestro.value,
+                    fenomeno: dom.genFenomeno.value,
+                    fi: dom.genFi.value,
+                    fondo: dom.genFondo.value,
                     presupuesto: state.data.presupuesto,
                     equipo: state.data.equipo,
                     financiero: state.data.financiero,

@@ -801,6 +801,16 @@ function updateComunicado(id, updates) {
             const sinResult = ensureCatalogRecord('siniestros', { siniestro: String(updates.siniestro).trim().toUpperCase() });
             if (sinResult.success && sinResult.data && sinResult.data.id) {
                 idSiniestroFinal = sinResult.data.id;
+
+                // Actualizar detalles del siniestro si se proporcionan
+                const updatesSiniestro = {};
+                if (updates.fenomeno !== undefined) updatesSiniestro.fenomeno = String(updates.fenomeno).toUpperCase();
+                if (updates.fondo !== undefined) updatesSiniestro.fondo = String(updates.fondo).toUpperCase();
+                if (updates.fi !== undefined) updatesSiniestro.fi = String(updates.fi).toUpperCase();
+
+                if (Object.keys(updatesSiniestro).length > 0) {
+                    actualizarRegistro('siniestros', idSiniestroFinal, updatesSiniestro);
+                }
             }
         }
 
