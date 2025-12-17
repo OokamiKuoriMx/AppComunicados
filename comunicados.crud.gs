@@ -529,6 +529,7 @@ function readAllComunicados() {
             // 1. Calcular Presupuesto Vigente
             const actualizaciones = actualizacionesPorComunicado[comunicado.id] || [];
             let presupuestoVigente = 0;
+            let supervision = 0;
             if (actualizaciones.length > 0) {
                 // Ordenar por consecutivo descendente
                 const ultima = actualizaciones.sort((a, b) => Number(b.consecutivo) - Number(a.consecutivo))[0];
@@ -539,7 +540,7 @@ function readAllComunicados() {
 
                 const base = hasCapturado ? mCapturado : (parseFloat(ultima.monto) || 0);
                 // Asegurar que supervision no sea NaN (puede venir undefined de la BD)
-                const supervision = parseFloat(ultima.montoSupervisión) || 0;
+                supervision = parseFloat(ultima.montoSupervisión) || 0;
                 presupuestoVigente = base + supervision;
             }
 
