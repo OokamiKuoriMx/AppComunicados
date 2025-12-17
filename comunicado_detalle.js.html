@@ -14,7 +14,8 @@
             data: null,
             catalogs: {},
             loading: false,
-            saving: false
+            saving: false,
+            editingPresupuestoIdx: null
         };
 
         // --- REFERENCIAS DOM ---
@@ -124,7 +125,8 @@
             // Presupuesto
             dom.presupuesto = {
                 body: document.getElementById('tabla-presupuesto-body'),
-                btnAdd: document.getElementById('btn-add-actualizacion')
+                btnAdd: document.getElementById('btn-add-actualizacion'),
+                totalLabel: document.getElementById('presupuesto-total-autorizado')
             };
 
             // Equipo
@@ -366,7 +368,36 @@
         function _updateResumenFinanciero() {
             const items = state.data.financiero || [];
             const presItems = state.data.presupuesto || [];
-            const autorizado = presItems.length > 0 ? (parseFloat(presItems[presItems.length - 1].monto) || 0) : 0;
+
+            // Calcular Autorizado usando la lógica maestra "Presupuesto Vigente"
+            let autorizado = 0;
+
+            if (presItems.length > 0) {
+                // Ordenar por si acaso (aunque suelen venir ordenados)
+                // Usamos el último elemento como el Vigente
+                const last = presItems[presItems.length - 1];
+
+                // Determinar Importe Obra (Precedencia: Capturado > Calculado)
+                const mCapturado = parseFloat(last.montoCapturado);
+                const hasCapturado = !isNaN(mCapturado) && last.montoCapturado !== '' && last.montoCapturado !== null;
+                const importeObra = hasCapturado ? mCapturado : (parseFloat(last.monto) || 0);
+
+                // Determinar Supervisión
+                const supervision = parseFloat(last.montoSupervision) || 0;
+
+                // Gran Total Vigente
+                autorizado = importeObra + supervision;
+
+                // Actualizar Label en Header de Tabla Presupuesto si existe
+                if (dom.presupuesto.totalLabel) {
+                    dom.presupuesto.totalLabel.textContent = _formatCurrency(autorizado);
+                }
+            } else {
+                if (dom.presupuesto.totalLabel) {
+                    dom.presupuesto.totalLabel.textContent = _formatCurrency(0);
+                }
+            }
+
             const ejercido = items.reduce((sum, item) => sum + (parseFloat(item.montoEjecutado) || 0), 0);
             const saldo = autorizado - ejercido; // Saldo real de obra
 
@@ -475,8 +506,19 @@
 
         function updatePresupuesto(idx, field, val) {
             const item = state.data.presupuesto[idx];
-            if (field === 'monto') item[field] = parseFloat(val.replace(/,/g, '')) || 0;
-            else item[field] = val;
+            if (field === 'montoCapturado' || field === 'montoSupervision') {
+                // Permitir vacío para capturado
+                if (val === '') {
+                    item[field] = field === 'montoCapturado' ? null : 0;
+                } else {
+                    item[field] = parseFloat(val.replace(/,/g, '')) || 0;
+                }
+            } else if (field === 'monto') {
+                // Legacy or if manually editing calc (shouldn't happen due to readonly)
+                item[field] = parseFloat(val.replace(/,/g, '')) || 0;
+            } else {
+                item[field] = val;
+            }
             _renderPresupuesto();
         }
         function removePresupuesto(idx) { state.data.presupuesto.splice(idx, 1); _renderPresupuesto(); }
@@ -658,25 +700,205 @@
             if (!tbody) return;
             tbody.innerHTML = '';
             const items = state.data.presupuesto || [];
+
             if (items.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Sin presupuesto.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Sin presupuesto.</td></tr>';
             } else {
                 items.forEach((item, idx) => {
                     const tr = document.createElement('tr');
+
+                    // Lógica
+                    const mCalculado = parseFloat(item.monto) || 0;
+                    const mCapturado = parseFloat(item.montoCapturado);
+                    const hasCapturado = !isNaN(mCapturado) && item.montoCapturado !== '' && item.montoCapturado !== null;
+                    const mSupervision = parseFloat(item.montoSupervision) || 0;
+                    const montoTotal = _formatCurrency((hasCapturado ? mCapturado : mCalculado) + mSupervision);
+
+                    // Estilos
+                    // Si hay manual: Input blanco con borde primario
+                    // Si no: Input gris (readonly)
+                    const inputVal = hasCapturado ? _formatCurrency(mCapturado, false) : _formatCurrency(mCalculado);
+                    const inputClass = hasCapturado ? 'fw-bold bg-white border-primary' : 'bg-light text-muted';
+                    const inputReadonly = hasCapturado ? '' : 'readonly';
+                    const iconBtn = hasCapturado ? '<i class="bi bi-arrow-counterclockwise"></i>' : '<i class="bi bi-pencil-fill"></i>';
+                    const btnClass = hasCapturado ? 'btn-outline-danger' : 'btn-outline-secondary';
+                    const btnTitle = hasCapturado ? 'Revertir a calculado' : 'Corregir manualmente';
+                    const btnAction = hasCapturado ? `ComunicadoDetalle.toggleManualInput(${idx}, false)` : `ComunicadoDetalle.toggleManualInput(${idx}, true)`;
+
                     tr.innerHTML = `
-                           <td>${idx === 0 ? '<span class="badge bg-secondary">Origen</span>' : `<input class="form-control form-control-sm" value="${item.revision || ''}" onchange="ComunicadoDetalle.updatePresupuesto(${idx},'revision',this.value)">`}</td>
-                           <td><input type="date" class="form-control form-control-sm" value="${_formatDateISO(item.fecha)}" onchange="ComunicadoDetalle.updatePresupuesto(${idx},'fecha',this.value)"></td>
-                           <td><input type="text" class="form-control form-control-sm text-end currency-input" value="${_formatCurrency(item.monto)}" onchange="ComunicadoDetalle.updatePresupuesto(${idx},'monto',this.value)"></td>
-                           <td class="text-center"><button class="btn btn-sm btn-link text-danger" onclick="ComunicadoDetalle.removePresupuesto(${idx})"><i class="bi bi-trash"></i></button></td>
+                           <td class="ps-4 align-middle">${idx === 0 ? '<span class="badge bg-secondary">Origen</span>' : `<input class="form-control form-control-sm text-center fw-bold" style="width: 80px;" value="${item.revision || ''}" onchange="ComunicadoDetalle.updatePresupuesto(${idx},'revision',this.value)">`}</td>
+                           <td class="align-middle"><input type="date" class="form-control form-control-sm" value="${_formatDateISO(item.fecha)}" onchange="ComunicadoDetalle.updatePresupuesto(${idx},'fecha',this.value)"></td>
+                           
+                           <!-- Columna Importe Obra: Diseño Integrado -->
+                           <td class="align-middle">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text ${hasCapturado ? 'bg-warning text-dark border-warning' : 'bg-light text-muted'}">
+                                        ${hasCapturado ? 'Man' : 'Calc'}
+                                    </span>
+                                    <input type="text" class="form-control text-end font-monospace ${inputClass}" 
+                                           id="input-obra-${idx}"
+                                           value="${inputVal}" 
+                                           ${inputReadonly}
+                                           onchange="ComunicadoDetalle.updatePresupuesto(${idx}, 'montoCapturado', this.value)"
+                                           placeholder="$0.00">
+                                    <button class="btn ${btnClass}" type="button" onclick="${btnAction}" title="${btnTitle}">
+                                        ${iconBtn}
+                                    </button>
+                                </div>
+                                ${hasCapturado ? `<div class="form-text text-end mt-0" style="font-size: 0.7rem;"><span class="text-decoration-line-through text-muted me-1">${_formatCurrency(mCalculado)}</span> <span class="text-primary">Manual</span></div>` : ''}
+                           </td>
+
+                           <!-- Columna Supervisión -->
+                           <td class="align-middle">
+                               <div class="input-group input-group-sm">
+                                   <input type="text" class="form-control text-end font-monospace" value="${_formatCurrency(mSupervision, false)}" placeholder="0.00" onchange="ComunicadoDetalle.updatePresupuesto(${idx},'montoSupervision',this.value)">
+                                   <button class="btn btn-outline-secondary" type="button" onclick="ComunicadoDetalle.calcularSupervision(${idx})" title="Calc 5%">5%</button>
+                               </div>
+                           </td>
+
+                           <td class="text-center align-middle">
+                               <div class="d-flex justify-content-center gap-2">
+                                   <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1" onclick="ComunicadoDetalle.abrirEditorPresupuesto(${idx})" title="Ver Desglose">
+                                       <i class="bi bi-list-columns-reverse"></i>
+                                   </button>
+                                   <button class="btn btn-sm btn-outline-danger border-0" onclick="ComunicadoDetalle.removePresupuesto(${idx})" title="Eliminar"><i class="bi bi-trash"></i></button>
+                               </div>
+                           </td>
                        `;
                     tbody.appendChild(tr);
                 });
             }
-            _updateResumenFinanciero();
+
+            // Actualizar Footer con Desglose Separado
+            let obra = 0;
+            let supervision = 0;
+
+            if (items.length > 0) {
+                const last = items[items.length - 1];
+                const mCapturado = parseFloat(last.montoCapturado);
+                const hasCapturado = !isNaN(mCapturado) && last.montoCapturado !== '' && last.montoCapturado !== null;
+
+                obra = hasCapturado ? mCapturado : (parseFloat(last.monto) || 0);
+                supervision = parseFloat(last.montoSupervision) || 0;
+            }
+
+            // Buscar elementos y actualizar
+            const footerObra = document.getElementById('footer-total-obra');
+            const footerSup = document.getElementById('footer-total-sup');
+
+            if (footerObra) footerObra.textContent = _formatCurrency(obra);
+            if (footerSup) footerSup.textContent = _formatCurrency(supervision);
+
+            _updateResumenFinanciero(); // Actualiza el total vigente en header
             _attachCurrencyFormatters();
         }
         function _addActualizacionPresupuesto() {
             state.data.presupuesto.push({ revision: '', fecha: new Date().toISOString(), monto: 0 });
+            _renderPresupuesto();
+        }
+
+        function toggleManualInput(idx, activate) {
+            const item = state.data.presupuesto[idx];
+
+            if (activate) {
+                // Activar manual: Si está vacío, copiamos el calculado como sugerencia, o lo dejamos vacío.
+                // UX decision: Copiar el calculado facilita la "corrección" menor.
+                // Pero el user pidió "Corregir monto PDF". A veces es totalmente diferente.
+                // Dejemoslo vacío o en 0 para que escriba.
+                // Si ya había algo (casos raros), se respeta.
+                if (item.montoCapturado === null || item.montoCapturado === '') {
+                    // Inicializar con el valor calculado para que sea válido y se muestre el input
+                    item.montoCapturado = parseFloat(item.monto) || 0;
+                }
+
+                // Hack para foco: renderizamos y luego buscamos el input
+                _renderPresupuesto();
+                setTimeout(() => {
+                    const input = document.getElementById(`input-obra-${idx}`);
+                    if (input) input.focus();
+                }, 50);
+
+            } else {
+                // Desactivar manual -> Revertir a calculado
+                item.montoCapturado = null;
+                _renderPresupuesto();
+            }
+        }
+
+        function calcularSupervision(idx) {
+            const item = state.data.presupuesto[idx];
+            // Regla de verdad: Capturado > Calculado
+            const mCapturado = parseFloat(item.montoCapturado);
+            const hasCapturado = !isNaN(mCapturado) && item.montoCapturado !== '' && item.montoCapturado !== null;
+
+            const base = hasCapturado ? mCapturado : (parseFloat(item.monto) || 0);
+
+            item.montoSupervision = base * 0.05;
+            _renderPresupuesto();
+        }
+
+        // --- MODAL DESGLOSE PRESUPUESTO ---
+        function abrirEditorPresupuesto(idx) {
+            state.editingPresupuestoIdx = idx;
+            const item = state.data.presupuesto[idx];
+            if (!item.lineas) item.lineas = [];
+
+            _renderModalLines();
+            _recalcularTotalModal(); // Inicializar total
+
+            const modalEl = document.getElementById('modalPresupuestoDetalle');
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+        }
+
+        function _renderModalLines() {
+            const tbody = document.getElementById('modal-presupuesto-lines-body');
+            tbody.innerHTML = '';
+            const lines = state.data.presupuesto[state.editingPresupuestoIdx].lineas;
+
+            lines.forEach((l, i) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><input type="text" class="form-control form-control-sm" value="${l.descripcion || ''}" placeholder="Descripción" onchange="ComunicadoDetalle.updateLineaPresupuesto(${i}, 'descripcion', this.value)"></td>
+                    <td><input type="text" class="form-control form-control-sm" value="${l.categoria || ''}" placeholder="Categoría" onchange="ComunicadoDetalle.updateLineaPresupuesto(${i}, 'categoria', this.value)"></td>
+                    <td><input type="text" class="form-control form-control-sm text-end currency-input" value="${_formatCurrency(l.importe)}" onchange="ComunicadoDetalle.updateLineaPresupuesto(${i}, 'importe', this.value)"></td>
+                    <td><button class="btn btn-sm text-danger" onclick="ComunicadoDetalle.removeLineaPresupuesto(${i})"><i class="bi bi-trash"></i></button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            _attachCurrencyFormatters();
+        }
+
+        function addLineaPresupuesto() {
+            state.data.presupuesto[state.editingPresupuestoIdx].lineas.push({ descripcion: '', categoria: '', importe: 0 });
+            _renderModalLines();
+        }
+
+        function removeLineaPresupuesto(lineIdx) {
+            state.data.presupuesto[state.editingPresupuestoIdx].lineas.splice(lineIdx, 1);
+            _renderModalLines();
+            _recalcularTotalModal();
+        }
+
+        function updateLineaPresupuesto(lineIdx, field, val) {
+            const line = state.data.presupuesto[state.editingPresupuestoIdx].lineas[lineIdx];
+            if (field === 'importe') {
+                line[field] = parseFloat(val.replace(/,/g, '')) || 0;
+                _recalcularTotalModal();
+            } else {
+                line[field] = val;
+            }
+        }
+
+        function _recalcularTotalModal() {
+            const lines = state.data.presupuesto[state.editingPresupuestoIdx].lineas;
+            const total = lines.reduce((sum, l) => sum + (parseFloat(l.importe) || 0), 0);
+
+            // Actualizar total visual en modal
+            document.getElementById('modal-total-revision').textContent = _formatCurrency(total);
+
+            // Actualizar modelo del padre y tabla principal
+            state.data.presupuesto[state.editingPresupuestoIdx].monto = total;
             _renderPresupuesto();
         }
 
@@ -732,7 +954,28 @@
             updateFinanciero, removeFinanciero,
             updatePresupuesto, removePresupuesto,
             updateEquipo, removeEquipo,
-            updateTicket, removeTicket
+            updateEquipo, removeEquipo,
+            updateTicket, removeTicket,
+            // Exportar funciones del modal
+            abrirEditorPresupuesto,
+            addLineaPresupuesto,
+            removeLineaPresupuesto,
+            updateEquipo, removeEquipo,
+            updateTicket, removeTicket,
+            // Exportar funciones del modal
+            abrirEditorPresupuesto,
+            addLineaPresupuesto,
+            removeLineaPresupuesto,
+            updateLineaPresupuesto,
+            updateEquipo, removeEquipo,
+            updateTicket, removeTicket,
+            // Exportar funciones del modal
+            abrirEditorPresupuesto,
+            addLineaPresupuesto,
+            removeLineaPresupuesto,
+            updateLineaPresupuesto,
+            calcularSupervision,
+            toggleManualInput
         };
 
     })();

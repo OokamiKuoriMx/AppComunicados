@@ -248,10 +248,12 @@
                                 <table class="table table-hover align-middle mb-0">
                                     <thead class="bg-light">
                                         <tr>
-                                            <th class="ps-4" style="width: 150px;">Revisión</th>
-                                            <th style="width: 160px;">Fecha</th>
-                                            <th class="text-end">Monto Autorizado</th>
-                                            <th class="text-center" style="width: 80px;">Acciones</th>
+                                            <th class="ps-4" style="width: 10%;">Revisión</th>
+                                            <th style="width: 15%;">Fecha</th>
+                                            <th style="width: 35%;">Importe Obra <small
+                                                    class="text-muted fw-normal">(Calc vs Manual)</small></th>
+                                            <th style="width: 25%;">Supervisión</th>
+                                            <th class="text-center" style="width: 15%;">Acciones</th>
                                         </tr>
                                     </thead>
                                     <tbody id="tabla-presupuesto-body">
@@ -265,9 +267,9 @@
                                     </tbody>
                                     <tfoot class="bg-light fw-bold">
                                         <tr>
-                                            <td colspan="2" class="text-end">Presupuesto Vigente:</td>
-                                            <td class="text-end text-primary fs-5" id="presupuesto-total-autorizado">
-                                                $0.00</td>
+                                            <td colspan="2" class="text-end align-middle">Vigente:</td>
+                                            <td class="text-end text-primary fs-5" id="footer-total-obra">$0.00</td>
+                                            <td class="text-end text-primary fs-5" id="footer-total-sup">$0.00</td>
                                             <td></td>
                                         </tr>
                                     </tfoot>
@@ -451,4 +453,34 @@
             </main>
         </div>
     </div> <!-- Cierre de detalle-content -->
+</div>
+
+<!-- Modal Desglose Presupuestal -->
+<div class="modal fade" id="modalPresupuestoDetalle" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title">Desglose Presupuestal</h5>
+            </div>
+            <div class="modal-body">
+                <table class="table table-sm borderless">
+                    <thead>
+                        <tr>
+                            <th>Obra/Concepto</th>
+                            <th>Categoría</th>
+                            <th>Importe</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modal-presupuesto-lines-body"></tbody>
+                </table>
+                <button class="btn btn-sm btn-outline-primary" onclick="ComunicadoDetalle.addLineaPresupuesto()">+
+                    Agregar Línea</button>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <div class="fw-bold">Total: <span id="modal-total-revision">$0.00</span></div>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Aceptar</button>
+            </div>
+        </div>
+    </div>
 </div>

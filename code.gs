@@ -134,8 +134,9 @@ const TABLE_DEFINITIONS = {
             'consecutivo',
             'esOrigen',
             'revision',
-            'montoCapturado',
-            'monto',
+            'monto',           // Calculado de lineas
+            'montoCapturado',  // Manual / Override
+            'montoSupervisión', // 5%
             'idPresupuesto',
             'fecha'
         ],
@@ -172,6 +173,14 @@ const TABLE_DEFINITIONS = {
             'importe'
         ],
         requiredFields: [],
+        uniqueFields: []
+    },
+
+    presupuestoLineas: {
+        sheetName: 'PresupuestoLineas',
+        primaryField: 'id',
+        headers: ['id', 'idActualizacion', 'descripcion', 'categoria', 'importe', 'fechaCreacion'],
+        requiredFields: ['idActualizacion', 'descripcion', 'importe'],
         uniqueFields: []
     },
 

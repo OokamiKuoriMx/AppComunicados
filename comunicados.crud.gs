@@ -656,21 +656,34 @@ function enriquecerComunicado(comunicado) {
 
         // --- ACTUALIZACIONES DE PRESUPUESTO ---
         // Cargar desde la tabla Actualizaciones (Origen, A, B, etc.)
+        // Cargar desde la tabla Actualizaciones (Origen, A, B, etc.)
         const actualizacionesPresResponse = readAllRows('actualizaciones');
         let actualizacionesPresupuesto = [];
+
+        // NUEVO: Leer líneas de desglose
+        const lineasResponse = readAllRows('presupuestoLineas');
+        const todasLasLineas = (lineasResponse.success && lineasResponse.data) ? lineasResponse.data : [];
+
         if (actualizacionesPresResponse.success && actualizacionesPresResponse.data) {
             actualizacionesPresupuesto = actualizacionesPresResponse.data
                 .filter(a => String(a.idComunicado) === String(comunicado.id))
                 .sort((a, b) => Number(a.consecutivo) - Number(b.consecutivo))
-                .map(a => ({
-                    id: a.id,
-                    revision: a.esOrigen == 1 ? 'Origen' : (a.revision || ''),
-                    fecha: a.fecha,
-                    monto: a.monto || 0,
-                    montoCapturado: a.montoCapturado || 0,
-                    esOrigen: a.esOrigen == 1,
-                    idPresupuesto: a.idPresupuesto || null
-                }));
+                .map(a => {
+                    // Filtrar hijos para esta actualización
+                    const misLineas = todasLasLineas.filter(l => String(l.idActualizacion) === String(a.id));
+                    return {
+                        id: a.id,
+                        revision: a.esOrigen == 1 ? 'Origen' : (a.revision || ''),
+                        fecha: a.fecha,
+                        monto: a.monto || 0,
+                        // Fix: Permitir null para indicar "Sin Captura Manual" vs 0 explicito
+                        montoCapturado: (a.montoCapturado !== '' && a.montoCapturado !== null && a.montoCapturado !== undefined) ? Number(a.montoCapturado) : null,
+                        montoSupervision: a.montoSupervisión || 0,
+                        esOrigen: a.esOrigen == 1,
+                        idPresupuesto: a.idPresupuesto || null,
+                        lineas: misLineas // <--- Nueva propiedad inyectada
+                    };
+                });
         }
 
         // Construir objeto enriquecido
@@ -984,20 +997,40 @@ function _handlePresupuestoUpdate(comunicadoId, datosGenerales, presupuestoItems
                 consecutivo: consecutivo,
                 esOrigen: esOrigen ? 1 : 0,
                 revision: revision,
-                monto: parseFloat(item.monto) || 0,
-                montoCapturado: parseFloat(item.montoCapturado) || 0,
+                monto: parseFloat(item.montoCalculado) || parseFloat(item.monto) || 0,
+                montoCapturado: (item.montoCapturado && parseFloat(item.montoCapturado) !== 0) ? parseFloat(item.montoCapturado) : null,
+                montoSupervisión: parseFloat(item.montoSupervision) || 0,
                 idPresupuesto: item.idPresupuesto || null,
                 fecha: item.fecha || new Date().toISOString()
             };
 
             const existente = existentesMap.get(consecutivo);
+            let actualizacionId = null;
+
             if (existente) {
                 // Actualizar registro existente
                 actualizarRegistro('actualizaciones', existente.id, registro);
                 existentesMap.delete(consecutivo); // Marcar como procesado
+                actualizacionId = existente.id;
             } else {
                 // Insertar nuevo registro
-                insertarRegistro('actualizaciones', registro);
+                const insertResult = insertarRegistro('actualizaciones', registro);
+                if (insertResult.success && insertResult.data) {
+                    actualizacionId = insertResult.data.id;
+                }
+            }
+
+            // LÓGICA NUEVA: Sincronizar HIJOS
+            if (actualizacionId && Array.isArray(item.lineas)) {
+                // Mapear al formato de BD
+                const lineasParaGuardar = item.lineas.map(l => ({
+                    descripcion: l.descripcion,
+                    categoria: l.categoria,
+                    importe: parseFloat(l.importe) || 0,
+                    fechaCreacion: new Date()
+                }));
+                // Usamos la función helper existente _syncChildTable
+                _syncChildTable('presupuestoLineas', 'idActualizacion', actualizacionId, lineasParaGuardar);
             }
         });
 
