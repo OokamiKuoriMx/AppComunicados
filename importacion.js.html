@@ -181,14 +181,6 @@
         };
 
         const mount = (container) => {
-            // Re-cache dom elements scoped to container if needed, 
-            // but since IDs are unique, existing logic works.
-            // Just ensure elements exist before adding listeners.
-            Object.keys(dom).forEach(key => {
-                const el = document.getElementById(dom[key].id);
-                // Note: dom definition above uses document.getElementById immediately which might fail if called before render.
-                // We should re-query DOM elements here.
-            });
             _cacheDom();
             _addEventListeners();
         };
