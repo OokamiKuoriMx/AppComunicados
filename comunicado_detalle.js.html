@@ -732,7 +732,7 @@
                     // Lógica
                     const mCalculado = parseFloat(item.monto) || 0;
                     const mCapturado = parseFloat(item.montoCapturado);
-                    const hasCapturado = !isNaN(mCapturado) && item.montoCapturado !== '' && item.montoCapturado !== null;
+                    const hasCapturado = item.montoCapturado !== null && item.montoCapturado !== '' && item.montoCapturado !== undefined;
                     const mSupervision = parseFloat(item.montoSupervision) || 0;
                     const montoTotal = _formatCurrency((hasCapturado ? mCapturado : mCalculado) + mSupervision);
 
@@ -831,9 +831,10 @@
                 // Pero el user pidió "Corregir monto PDF". A veces es totalmente diferente.
                 // Dejemoslo vacío o en 0 para que escriba.
                 // Si ya había algo (casos raros), se respeta.
-                if (item.montoCapturado === null || item.montoCapturado === '') {
-                    // Inicializar con el valor calculado para que sea válido y se muestre el input
-                    item.montoCapturado = parseFloat(item.monto) || 0;
+                if (item.montoCapturado === undefined || item.montoCapturado === null || item.montoCapturado === '') {
+                    // Inicializar con 0 explícitamente para que hasCapturado sea true
+                    // hasCapturado chequea: !isNaN && !== '' && !== null
+                    item.montoCapturado = 0;
                 }
 
                 // Hack para foco: renderizamos y luego buscamos el input
