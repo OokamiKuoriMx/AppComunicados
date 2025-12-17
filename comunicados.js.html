@@ -565,7 +565,8 @@
                     <td class="text-nowrap small">${escapeHtml(com.fecha || '')}</td>
                     <td class="small">${escapeHtml(com.estado || '')}</td>
                     <td class="small text-truncate" style="max-width: 200px;" title="${escapeHtml(com.contratista || '')}">${escapeHtml(com.contratista || '')}</td>
-                    <td class="small font-monospace text-end">${_formatCurrency(com.presupuesto)}</td>
+                    <td class="small font-monospace text-end text-primary fw-bold" title="Total Obra + Supervisión">${_formatCurrency(com.presupuesto)}</td>
+                    <td class="small font-monospace text-end text-muted">${_formatCurrency(com.montoSupervision)}</td>
                     <td class="text-end pe-4">
                         <button class="btn btn-sm btn-outline-primary me-1" onclick="Comunicados.abrirModal(${com.id || ''})" title="Edición rápida">
                             <i class="bi bi-eye"></i> Ver

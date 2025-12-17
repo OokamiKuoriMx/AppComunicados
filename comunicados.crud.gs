@@ -562,7 +562,8 @@ function readAllComunicados() {
                 fecha: formatDateValue(datoGeneral.fecha),
                 estado: String(estado.estado || estado.nombre || ''),
                 contratista: contratistas || 'Sin Asignar',
-                presupuesto: presupuestoVigente
+                presupuesto: presupuestoVigente,
+                montoSupervision: supervision || 0
             };
         }).sort((a, b) => {
             // Ordenar por fecha descendente
