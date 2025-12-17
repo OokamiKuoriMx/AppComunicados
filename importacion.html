@@ -1,0 +1,100 @@
+<section class="card shadow-sm border-0 fade-in">
+    <div class="card-header bg-gradient-primary text-white py-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-1 fw-bold"><i class="bi bi-file-earmark-spreadsheet-fill me-2"></i>Importación Inteligente
+                </h5>
+                <p class="mb-0 small opacity-75">Carga masiva de documentos desde Excel/CSV.</p>
+            </div>
+            <button class="btn btn-sm btn-outline-light" onclick="Importacion.reset()">
+                <i class="bi bi-arrow-clockwise"></i> Reiniciar
+            </button>
+        </div>
+    </div>
+
+    <div class="card-body p-4">
+        <!-- ÁREA DE CARGA -->
+        <div id="drop-zone"
+            class="upload-zone text-center p-5 border-2 border-dashed rounded bg-light mb-4 transition-hover">
+            <i class="bi bi-cloud-arrow-up text-primary" style="font-size: 3rem;"></i>
+            <h5 class="mt-3 fw-bold text-muted">Arrastra tu archivo CSV aquí</h5>
+            <p class="text-muted small">o haz clic para seleccionar</p>
+            <input type="file" id="file-input" class="d-none" accept=".csv, .txt">
+            <button class="btn btn-primary mt-2 px-4 rounded-pill"
+                onclick="document.getElementById('file-input').click()">
+                Seleccionar Archivo
+            </button>
+            <div id="file-info" class="mt-3 d-none">
+                <span class="badge bg-info text-dark px-3 py-2 shadow-sm">
+                    <i class="bi bi-file-earmark-check me-2"></i><span id="filename-display">archivo.csv</span>
+                </span>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end mb-4">
+            <button id="btn-analizar" class="btn btn-lg btn-success shadow px-5" disabled
+                onclick="Importacion.analizar()">
+                <i class="bi bi-search me-2"></i> Analizar y Procesar
+            </button>
+        </div>
+
+        <!-- LOADER -->
+        <div id="import-loader" class="text-center py-5 d-none">
+            <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
+            <p class="mt-3 text-muted fs-5 animate-pulse" id="loader-msg">Analizando estructura...</p>
+        </div>
+
+        <!-- RESULTADOS / PREVIEW -->
+        <div id="preview-container" class="d-none">
+            <h6 class="fw-bold text-secondary mb-3"><i class="bi bi-table me-2"></i>Vista Previa del Lote</h6>
+
+            <div class="alert alert-info border-0 shadow-sm d-flex align-items-center">
+                <i class="bi bi-info-circle-fill fs-4 me-3"></i>
+                <div id="preview-summary">
+                    Resumen del análisis pendiente.
+                </div>
+            </div>
+
+            <div class="table-responsive shadow-sm rounded border">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="bg-light">
+                        <tr>
+                            <th>Referencia</th>
+                            <th>Comunicado</th>
+                            <th>Tipo</th>
+                            <th class="text-end">Total Doc</th>
+                            <th>Líneas</th>
+                            <th class="text-center">Estado</th>
+                            <th>Detalles</th>
+                        </tr>
+                    </thead>
+                    <tbody id="preview-body" class="bg-white">
+                        <!-- Filas dinámicas -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<style>
+    .upload-zone {
+        border-style: dashed;
+        border-color: #dee2e6;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .upload-zone:hover,
+    .upload-zone.dragover {
+        border-color: #0d6efd;
+        background-color: #e9ecef !important;
+        transform: scale(1.01);
+    }
+
+    .text-gradient {
+        background: linear-gradient(45deg, #0d6efd, #0dcaf0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+</style>
