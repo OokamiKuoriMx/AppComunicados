@@ -471,9 +471,9 @@ function readAllComunicados() {
             cuentas: { response: readAllRows('cuentas'), essential: true },
             datosGenerales: { response: readAllRows('datosGenerales'), essential: true },
             estados: { response: readAllRows('estados'), essential: false },
-            distritosRiego: { response: readAllRows('distritosRiego'), essential: false },
-            siniestros: { response: readAllRows('siniestros'), essential: false },
-            empresas: { response: readAllRows('empresas'), essential: false }
+            distritosRiego: { response: readAllRows('distritosRiego'), essential: false }, // Mantenemos aunque no se muestre por si acaso
+            actualizaciones: { response: readAllRows('actualizaciones'), essential: false },
+            equipo: { response: readAllRows('equipo'), essential: false }
         };
 
         const datosListas = {};
@@ -502,40 +502,73 @@ function readAllComunicados() {
             return value === null || value === undefined ? '' : String(value);
         };
 
+        const comunicadosPorId = mapeoPorCampo(datosListas.comunicados || [], 'id');
+        const actualizacionesPorComunicado = (datosListas.actualizaciones || []).reduce((acc, item) => {
+            if (!acc[item.idComunicado]) acc[item.idComunicado] = [];
+            acc[item.idComunicado].push(item);
+            return acc;
+        }, {});
+        const equipoPorComunicado = (datosListas.equipo || []).reduce((acc, item) => {
+            if (!acc[item.idComunicado]) acc[item.idComunicado] = [];
+            acc[item.idComunicado].push(item);
+            return acc;
+        }, {});
+
+        // Helper para mapear IDs simples
         const cuentasPorId = mapeoPorCampo(datosListas.cuentas || [], 'id');
         const datosGeneralesPorComunicadoId = mapeoPorCampo(datosListas.datosGenerales || [], 'idComunicado');
         const estadosPorId = mapeoPorCampo(datosListas.estados || [], 'id');
-        const distritosPorId = mapeoPorCampo(datosListas.distritosRiego || [], 'id');
-        const siniestrosPorId = mapeoPorCampo(datosListas.siniestros || [], 'id');
+
+        // ya no requerimos distritos/siniestros en el listado, pero se mantienen leídos si se necesitan para filtros futuros.
 
         const todosComunicados = (datosListas.comunicados || []).map(comunicado => {
             const datoGeneral = obtenerDesdeMapa(datosGeneralesPorComunicadoId, comunicado.id) || {};
             const cuenta = obtenerDesdeMapa(cuentasPorId, comunicado.idCuenta) || {};
             const estado = obtenerDesdeMapa(estadosPorId, datoGeneral.idEstado) || {};
-            const distrito = obtenerDesdeMapa(distritosPorId, datoGeneral.idDR) || {};
-            const siniestro = obtenerDesdeMapa(siniestrosPorId, datoGeneral.idSiniestro) || {};
+
+            // 1. Calcular Presupuesto Vigente
+            const actualizaciones = actualizacionesPorComunicado[comunicado.id] || [];
+            let presupuestoVigente = 0;
+            if (actualizaciones.length > 0) {
+                // Ordenar por consecutivo descendente
+                const ultima = actualizaciones.sort((a, b) => Number(b.consecutivo) - Number(a.consecutivo))[0];
+                const mCapturado = parseFloat(ultima.montoCapturado);
+                // Check explicitly against undefined/null strings because table data might be raw strings
+                const montoStr = String(ultima.montoCapturado);
+                const hasCapturado = !isNaN(mCapturado) && montoStr !== '' && montoStr !== 'null' && montoStr !== 'undefined';
+
+                const base = hasCapturado ? mCapturado : (parseFloat(ultima.monto) || 0);
+                // Asegurar que supervision no sea NaN (puede venir undefined de la BD)
+                const supervision = parseFloat(ultima.montoSupervisión) || 0;
+                presupuestoVigente = base + supervision;
+            }
+
+            // 2. Obtener Contratista(s)
+            const equipo = equipoPorComunicado[comunicado.id] || [];
+            const contratistas = equipo
+                .filter(e => e.tipo === 'contratista' && e.nombre)
+                .map(e => e.nombre)
+                .join(', ');
 
             return {
                 id: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
                 idComunicado: parseNumeric(comunicado.id) ?? String(comunicado.id || '').trim(),
                 idReferencia: parseNumeric(comunicado.idReferencia),
-                idCuenta: parseNumeric(comunicado.idReferencia), // Mantener idCuenta por compatibilidad
+                idCuenta: parseNumeric(comunicado.idReferencia),
                 cuenta: String(cuenta.cuenta || cuenta.referencia || cuenta.nombre || 'Cuenta Desconocida'),
                 comunicado: String(comunicado.comunicado || ''),
                 status: comunicado.status ?? '',
                 descripcion: String(datoGeneral.descripcion || ''),
                 fecha: formatDateValue(datoGeneral.fecha),
                 estado: String(estado.estado || estado.nombre || ''),
-                distrito: String(distrito.distritoRiego || distrito.nombre || ''),
-                siniestro: String(siniestro.siniestro || siniestro.nombre || ''),
-                fenomeno: String(siniestro.fenomeno || ''),
-                fondo: String(siniestro.fondo || ''),
-                fi: String(siniestro.fi || '')
+                contratista: contratistas || 'Sin Asignar',
+                presupuesto: presupuestoVigente
             };
         }).sort((a, b) => {
+            // Ordenar por fecha descendente
             const fechaA = a.fecha || '';
             const fechaB = b.fecha || '';
-            return fechaB.localeCompare(fechaA) || a.cuenta.localeCompare(b.cuenta);
+            return fechaB.localeCompare(fechaA);
         });
 
         return { success: true, data: todosComunicados, message: 'Todos los comunicados recuperados exitosamente' };
