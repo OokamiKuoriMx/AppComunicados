@@ -22,8 +22,17 @@ function ejecutarImportacion(fileContent) {
         // PASO 3: VALIDACIÓN DE NEGOCIO
         const validacion = validarLote(loteAgrupado);
 
-        // Filtrar solo los válidos para procesar
-        const documentosAProcesar = loteAgrupado.filter(doc => doc.validacion.esValido);
+        // Filtrar solo los válidos para procesar y Ordenar (ORIGEN va primero que ACTUALIZACION)
+        const documentosAProcesar = loteAgrupado
+            .filter(doc => doc.validacion.esValido)
+            .sort((a, b) => {
+                const tipoA = a.header.tipoRegistro;
+                const tipoB = b.header.tipoRegistro;
+                // ORIGEN < ACTUALIZACION (alfabéticamente O > A, así que lógica invertida o explicita)
+                if (tipoA === 'ORIGEN' && tipoB !== 'ORIGEN') return -1;
+                if (tipoA !== 'ORIGEN' && tipoB === 'ORIGEN') return 1;
+                return 0;
+            });
 
         if (documentosAProcesar.length === 0) {
             return {
