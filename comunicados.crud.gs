@@ -1036,6 +1036,11 @@ function _handlePresupuestoUpdate(comunicadoId, datosGenerales, presupuestoItems
 
         // 4. Eliminar actualizaciones que ya no existen en el frontend
         existentesMap.forEach((antiguo, consecutivo) => {
+            // SEGURIDAD: Borrado en Cascada (Hijos)
+            // Borra todas las líneas asociadas a esta actualización huérfana
+            _syncChildTable('presupuestoLineas', 'idActualizacion', antiguo.id, []);
+
+            // Borrado del Padre
             eliminarRegistro('actualizaciones', antiguo.id);
         });
 

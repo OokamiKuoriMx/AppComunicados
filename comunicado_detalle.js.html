@@ -521,7 +521,26 @@
             }
             _renderPresupuesto();
         }
-        function removePresupuesto(idx) { state.data.presupuesto.splice(idx, 1); _renderPresupuesto(); }
+        function removePresupuesto(idx) {
+            const items = state.data.presupuesto;
+
+            // Reglas de Seguridad
+            if (idx === 0) {
+                alert("No se puede eliminar el presupuesto de Origen.");
+                return;
+            }
+            if (idx !== items.length - 1) {
+                alert("Solo se puede eliminar la última revisión para mantener la integridad de la secuencia.");
+                return;
+            }
+
+            if (!confirm('¿Estás seguro de eliminar esta revisión?\n\nADVERTENCIA: Esta acción eliminará permanentemente la revisión y todo su desglose de conceptos asociado.')) {
+                return;
+            }
+
+            state.data.presupuesto.splice(idx, 1);
+            _renderPresupuesto();
+        }
 
         function updateEquipo(idx, field, val) { state.data.equipo[idx][field] = val; }
         function removeEquipo(idx) { state.data.equipo.splice(idx, 1); _renderEquipo(); }
@@ -707,6 +726,9 @@
                 items.forEach((item, idx) => {
                     const tr = document.createElement('tr');
 
+                    const isOrigin = idx === 0;
+                    const isLast = idx === items.length - 1;
+
                     // Lógica
                     const mCalculado = parseFloat(item.monto) || 0;
                     const mCapturado = parseFloat(item.montoCapturado);
@@ -761,7 +783,10 @@
                                    <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1" onclick="ComunicadoDetalle.abrirEditorPresupuesto(${idx})" title="Ver Desglose">
                                        <i class="bi bi-list-columns-reverse"></i>
                                    </button>
-                                   <button class="btn btn-sm btn-outline-danger border-0" onclick="ComunicadoDetalle.removePresupuesto(${idx})" title="Eliminar"><i class="bi bi-trash"></i></button>
+                                   ${(!isOrigin && isLast)
+                            ? `<button class="btn btn-sm btn-outline-danger border-0" onclick="ComunicadoDetalle.removePresupuesto(${idx})" title="Eliminar"><i class="bi bi-trash"></i></button>`
+                            : `<span class="text-muted d-flex align-items-center" title="${isOrigin ? 'El origen es permanente' : 'Solo se puede eliminar la última revisión'}"><i class="bi bi-lock-fill"></i></span>`
+                        }
                                </div>
                            </td>
                        `;
