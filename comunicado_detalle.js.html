@@ -410,6 +410,7 @@
         }
 
         // --- EQUIPO ---
+        // --- EQUIPO ---
         function _renderEquipo() {
             if (!dom.equipo.listContratistas) return;
             dom.equipo.listContratistas.innerHTML = '';
@@ -421,24 +422,88 @@
             const renderItem = (item, type, container) => {
                 const realIndex = equipo.indexOf(item);
                 const div = document.createElement('div');
-                div.className = 'list-group-item d-flex justify-content-between align-items-center mb-2 shadow-sm border';
+                div.className = 'list-group-item d-flex justify-content-between align-items-start mb-2 shadow-sm border p-3';
+
+                // IDs únicos para combobox
+                const inputId = `eq-input-${realIndex}`;
+                const dropId = `eq-drop-${realIndex}`;
+                const alertId = `eq-alert-${realIndex}`;
+
+                // HTML Diferente para Contratista (Combobox) vs Supervisor (Texto simple)
+                // Nota: Podríamos extender Supervisor a catálogo de usuarios más adelante
+                const isContratista = type === 'contratista';
+
                 div.innerHTML = `
                     <div class="flex-grow-1 me-3">
-                        <input type="text" class="form-control form-control-sm border-0 fw-bold mb-1" placeholder="Nombre..." 
-                            value="${item.nombre || ''}" onchange="ComunicadoDetalle.updateEquipo(${realIndex}, 'nombre', this.value)">
-                        <input type="text" class="form-control form-control-sm border-0 text-muted small" placeholder="Detalles / Cargo..." 
-                            value="${item.detalles || ''}" onchange="ComunicadoDetalle.updateEquipo(${realIndex}, 'detalles', this.value)">
+                        ${isContratista ? `
+                            <div class="mb-2 position-relative">
+                                <label class="form-label small text-muted mb-0">Empresa / Contratista</label>
+                                <input type="text" class="form-control form-control-sm fw-bold" id="${inputId}"
+                                    placeholder="Buscar o escribir nombre..." value="${item.nombre || ''}" autocomplete="off"
+                                    data-bs-toggle="dropdown" aria-expanded="false">
+                                <ul class="dropdown-menu w-100 shadow" id="${dropId}" style="max-height: 200px; overflow-y: auto;"></ul>
+                                <div id="${alertId}" class="form-text text-warning d-none small mt-1">
+                                    <i class="bi bi-exclamation-triangle-fill me-1"></i> Nueva Empresa (Se creará al guardar)
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="mb-2">
+                                <label class="form-label small text-muted mb-0">Nombre del Supervisor</label>
+                                <input type="text" class="form-control form-control-sm fw-bold" 
+                                    placeholder="Nombre completo..." value="${item.nombre || ''}"
+                                    onchange="ComunicadoDetalle.updateEquipo(${realIndex}, 'nombre', this.value)">
+                            </div>
+                        `}
+                        
+                        <div>
+                            <input type="text" class="form-control form-control-sm border-0 text-muted small bg-light" placeholder="Detalles, Cargo o Notas adicionales..." 
+                                value="${item.detalles || ''}" onchange="ComunicadoDetalle.updateEquipo(${realIndex}, 'detalles', this.value)">
+                        </div>
                     </div>
-                    <button class="btn btn-outline-danger btn-sm border-0" onclick="ComunicadoDetalle.removeEquipo(${realIndex})"><i class="bi bi-x-lg"></i></button>
+                    <button class="btn btn-outline-danger btn-sm border-0 mt-3" onclick="ComunicadoDetalle.removeEquipo(${realIndex})" title="Quitar asignación">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
                 `;
                 container.appendChild(div);
+
+                // Inicializar Combobox si es Contratista
+                if (isContratista) {
+                    // Usamos setTimeout para asegurar que el DOM está listo
+                    setTimeout(() => {
+                        const input = document.getElementById(inputId);
+                        const dropdown = document.getElementById(dropId);
+                        const alertEl = document.getElementById(alertId);
+
+                        if (input && dropdown) {
+                            // Configurar combobox con catálogo de empresas
+                            _setupCombobox(
+                                input,
+                                dropdown,
+                                state.catalogs.empresas || [],
+                                'razonSocial', // Campo a mostrar
+                                (seleccion) => {
+                                    // Al seleccionar
+                                    item.nombre = seleccion.razonSocial;
+                                    // Podríamos guardar ID si la estructura lo soporta: item.idEmpresa = seleccion.id;
+                                    ComunicadoDetalle.updateEquipo(realIndex, 'nombre', seleccion.razonSocial);
+                                },
+                                alertEl,
+                                (val) => {
+                                    // Al escribir manual
+                                    item.nombre = val;
+                                    ComunicadoDetalle.updateEquipo(realIndex, 'nombre', val);
+                                }
+                            );
+                        }
+                    }, 0);
+                }
             };
 
             equipo.filter(e => e.tipo === 'contratista').forEach(e => renderItem(e, 'contratista', dom.equipo.listContratistas));
             equipo.filter(e => e.tipo === 'supervisor').forEach(e => renderItem(e, 'supervisor', dom.equipo.listSupervisores));
 
-            if (dom.equipo.listContratistas.children.length === 0) dom.equipo.listContratistas.innerHTML = '<div class="text-center text-muted small py-2">Sin contratistas.</div>';
-            if (dom.equipo.listSupervisores.children.length === 0) dom.equipo.listSupervisores.innerHTML = '<div class="text-center text-muted small py-2">Sin supervisores.</div>';
+            if (dom.equipo.listContratistas.children.length === 0) dom.equipo.listContratistas.innerHTML = '<div class="text-center text-muted small py-4 border rounded bg-light">Sin contratistas asignados.</div>';
+            if (dom.equipo.listSupervisores.children.length === 0) dom.equipo.listSupervisores.innerHTML = '<div class="text-center text-muted small py-4 border rounded bg-light">Sin supervisores asignados.</div>';
         }
 
         function _addEquipo(tipo) {

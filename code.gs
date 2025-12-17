@@ -192,6 +192,14 @@ const TABLE_DEFINITIONS = {
         headers: ['id', 'idComunicado', 'tipo', 'fecha', 'registro'],
         requiredFields: [],
         uniqueFields: []
+    },
+
+    equipo: {
+        sheetName: 'Equipo',
+        primaryField: 'id',
+        headers: ['id', 'idComunicado', 'tipo', 'nombre', 'detalles'],
+        requiredFields: ['idComunicado', 'tipo'],
+        uniqueFields: []
     }
 };
 

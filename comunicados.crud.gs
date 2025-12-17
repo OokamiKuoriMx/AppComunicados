@@ -77,13 +77,14 @@ function fetchComunicadoCatalogs() {
         const siniestros = leerCatalogo('siniestros');
         const ajustadores = leerCatalogo('ajustadores');
         const aseguradoras = leerCatalogo('aseguradoras');
+        const empresas = leerCatalogo('empresas');
 
         // 4. Procesar datos (ordenar)
         const processResponse = (data) => {
             if (Array.isArray(data)) {
                 return data.sort((a, b) => {
-                    const nombreA = String(a.nombre || a.nombreAjustador || a.estado || a.distritoRiego || a.siniestro || a.aseguradora || '');
-                    const nombreB = String(b.nombre || b.nombreAjustador || b.estado || b.distritoRiego || b.siniestro || b.aseguradora || '');
+                    const nombreA = String(a.nombre || a.nombreAjustador || a.estado || a.distritoRiego || a.siniestro || a.aseguradora || a.razonSocial || '');
+                    const nombreB = String(b.nombre || b.nombreAjustador || b.estado || b.distritoRiego || b.siniestro || b.aseguradora || b.razonSocial || '');
                     return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
                 });
             }
@@ -98,6 +99,7 @@ function fetchComunicadoCatalogs() {
                 siniestros: processResponse(siniestros),
                 ajustadores: processResponse(ajustadores),
                 aseguradoras: processResponse(aseguradoras),
+                empresas: processResponse(empresas),
                 debugLogs: debugLog // Devolver logs dentro de data para sobrevivir al unwrap
             }
         };
@@ -927,6 +929,43 @@ function updateComunicado(id, updates) {
         // 6. Actualizar Presupuesto
         if (updates.presupuesto) {
             _handlePresupuestoUpdate(comunicadoId, datosGenerales, updates.presupuesto);
+        }
+
+        // F) ACTUALIZACIÓN DE EQUIPO (Contratistas y Supervisores)
+        if (updates.equipo && Array.isArray(updates.equipo)) {
+            // 1. Auto-crear empresas para contratistas nuevos
+            const equipoProcesado = updates.equipo.map(item => {
+                const itemProcesado = { ...item, idComunicado: comunicadoId };
+
+                if (item.tipo === 'contratista' && item.nombre) {
+                    const nombreEmpresa = String(item.nombre).trim().toUpperCase();
+                    if (nombreEmpresa) {
+                        const empResult = ensureCatalogRecord('empresas', { razonSocial: nombreEmpresa });
+                        if (empResult.success) {
+                            // Normalizar nombre con el del catálogo
+                            itemProcesado.nombre = empResult.data.razonSocial;
+                        }
+                    }
+                }
+                return itemProcesado;
+            });
+
+            // 2. Sincronizar tabla Equipo
+            _syncChildTable('equipo', 'idComunicado', comunicadoId, equipoProcesado);
+        }
+
+        // G) ACTUALIZACIÓN DE TICKETS
+        if (updates.tickets && Array.isArray(updates.tickets)) {
+            const ticketsProcesados = updates.tickets.map(t => ({
+                idComunicado: comunicadoId,
+                tipo: 'ticket', // Default
+                fecha: t.fecha || new Date().toISOString(),
+                numero: t.numero,
+                asunto: t.asunto,
+                estado: t.estado
+            }));
+            // Asumiendo tabla tickets existe y tiene estructura compatible
+            _syncChildTable('tickets', 'idComunicado', comunicadoId, ticketsProcesados);
         }
 
         return { success: true, message: 'Comunicado actualizado correctamente' };
