@@ -112,40 +112,49 @@ function ejecutarImportacion(fileContent) {
 }
 
 /**
- * PASO 2: PARSER Y AGRUPADOR
+ * PASO 2: PARSER Y AGRUPADOR ("Las Octavas" Pattern)
  */
 function parseImportFile(csvInfo) {
-    // Asumimos que csvInfo es string CSV
-    const rows = Utilities.parseCsv(csvInfo);
+    // 1. Limpieza inicial del string CSV (BOM y espacios)
+    let cleanCsv = csvInfo;
+    if (cleanCsv.charCodeAt(0) === 0xFEFF) {
+        cleanCsv = cleanCsv.slice(1);
+    }
+
+    // 2. Parsing nativo
+    const rows = Utilities.parseCsv(cleanCsv);
     if (!rows || rows.length < 2) return [];
 
-    // Headers esperados: REF_CTA, COMUNICADO_ID, TIPO_REGISTRO, FECHA_DOC, ESTADO, REF_SINIESTRO, ASEGURADORA, FENOMENO, FECHA_SINIESTRO_FI, FONDO, TOTAL_DOC_PDF, CONCEPTO_OBRA, CATEGORIA, IMPORTE_RENGLON, MONTO_SUPERVISION
-    // Mapeo de indices basado en la primera fila si es header, o fijo segun requerimiento.
-    // Asumiremos la primera fila es header.
+    // 3. Normalización de Headers (Trim y Upper)
     const headers = rows[0].map(h => String(h).trim().toUpperCase());
     const dataRows = rows.slice(1);
 
-    const getIdx = (name) => headers.indexOf(name);
+    // 4. Mapeo Explícito de Columnas (Indices dinámicos)
+    const idxRef = headers.indexOf('REF_CTA');
+    const idxCom = headers.indexOf('COMUNICADO_ID');
+    const idxTipo = headers.indexOf('TIPO_REGISTRO');
+    const idxFecha = headers.indexOf('FECHA_DOC');
+    const idxEstado = headers.indexOf('ESTADO');
+    const idxSinRef = headers.indexOf('REF_SINIESTRO');
+    const idxAseg = headers.indexOf('ASEGURADORA');
+    const idxFen = headers.indexOf('FENOMENO');
+    const idxFi = headers.indexOf('FECHA_SINIESTRO_FI');
+    const idxFondo = headers.indexOf('FONDO');
+    const idxTotal = headers.indexOf('TOTAL_DOC_PDF');
+    const idxConcepto = headers.indexOf('CONCEPTO_OBRA');
+    const idxCat = headers.indexOf('CATEGORIA');
+    const idxImporte = headers.indexOf('IMPORTE_RENGLON');
+    const idxSup = headers.indexOf('MONTO_SUPERVISION');
 
-    const idxRef = getIdx('REF_CTA');
-    const idxCom = getIdx('COMUNICADO_ID');
-    const idxTipo = getIdx('TIPO_REGISTRO');
-    const idxFecha = getIdx('FECHA_DOC');
-    const idxEstado = getIdx('ESTADO');
-    const idxSinRef = getIdx('REF_SINIESTRO');
-    const idxAseg = getIdx('ASEGURADORA');
-    const idxFen = getIdx('FENOMENO');
-    const idxFi = getIdx('FECHA_SINIESTRO_FI');
-    const idxFondo = getIdx('FONDO');
-    const idxTotal = getIdx('TOTAL_DOC_PDF');
-    const idxConcepto = getIdx('CONCEPTO_OBRA');
-    const idxCat = getIdx('CATEGORIA');
-    const idxImporte = getIdx('IMPORTE_RENGLON');
-    const idxSup = getIdx('MONTO_SUPERVISION');
+    // Validación básica de estructura
+    if (idxRef === -1 || idxCom === -1) {
+        throw new Error('El archivo CSV no tiene las columnas obligatorias REF_CTA y COMUNICADO_ID.');
+    }
 
     const agrupado = {};
 
     dataRows.forEach(row => {
+        // Mapeo seguro con defaults
         const refCta = String(row[idxRef] || '').trim().toUpperCase();
         const comId = String(row[idxCom] || '').trim().toUpperCase();
 
@@ -154,23 +163,21 @@ function parseImportFile(csvInfo) {
         const key = `${refCta}|${comId}`;
 
         if (!agrupado[key]) {
-            // Inicializar cabecera
+            // Inicializar documento
             agrupado[key] = {
                 header: {
                     refCta: refCta,
                     comunicadoId: comId,
-                    tipoRegistro: String(row[idxTipo] || 'ACTUALIZACION').trim().toUpperCase(),
-                    fechaDoc: row[idxFecha], // Debería ser YYYY-MM-DD o parseable
-                    estado: String(row[idxEstado] || '').toUpperCase(),
-                    refSiniestro: String(row[idxSinRef] || '').toUpperCase(),
-                    aseguradora: String(row[idxAseg] || '').toUpperCase(),
-                    fenomeno: String(row[idxFen] || '').toUpperCase(),
-                    fechaSiniestroFi: row[idxFi],
-                    fondo: String(row[idxFondo] || '').toUpperCase(),
-                    totalPdf: parseNumeric(row[idxTotal]) || 0,
-                    // Supervision puede venir repetido, tomamos el del parent o sumamos?
-                    // Asumiremos que es un valor global del documento, tomamos el primero.
-                    montoSupervision: parseNumeric(row[idxSup]) || 0
+                    tipoRegistro: idxTipo > -1 ? String(row[idxTipo] || 'ACTUALIZACION').trim().toUpperCase() : 'ACTUALIZACION',
+                    fechaDoc: idxFecha > -1 ? row[idxFecha] : null,
+                    estado: idxEstado > -1 ? String(row[idxEstado] || '').toUpperCase() : '',
+                    refSiniestro: idxSinRef > -1 ? String(row[idxSinRef] || '').toUpperCase() : '',
+                    aseguradora: idxAseg > -1 ? String(row[idxAseg] || '').toUpperCase() : '',
+                    fenomeno: idxFen > -1 ? String(row[idxFen] || '').toUpperCase() : '',
+                    fechaSiniestroFi: idxFi > -1 ? row[idxFi] : null,
+                    fondo: idxFondo > -1 ? String(row[idxFondo] || '').toUpperCase() : '',
+                    totalPdf: idxTotal > -1 ? (parseNumeric(row[idxTotal]) || 0) : 0,
+                    montoSupervision: idxSup > -1 ? (parseNumeric(row[idxSup]) || 0) : 0
                 },
                 lineas: [],
                 validacion: { sumaLineas: 0, esValido: true, errores: [] }
@@ -178,10 +185,10 @@ function parseImportFile(csvInfo) {
         }
 
         // Agregar línea
-        const importe = parseNumeric(row[idxImporte]) || 0;
+        const importe = idxImporte > -1 ? (parseNumeric(row[idxImporte]) || 0) : 0;
         agrupado[key].lineas.push({
-            concepto: String(row[idxConcepto] || ''),
-            categoria: String(row[idxCat] || ''),
+            concepto: idxConcepto > -1 ? String(row[idxConcepto] || '') : '',
+            categoria: idxCat > -1 ? String(row[idxCat] || '') : '',
             importe: importe
         });
 
