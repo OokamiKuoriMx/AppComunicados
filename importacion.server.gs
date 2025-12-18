@@ -20,25 +20,31 @@ function ejecutarImportacion(fileContent) {
         console.log(`[${contexto}] Archivo parseado. Documentos identificados: ${loteAgrupado.length}`);
 
         // PASO 3: VALIDACIÓN DE NEGOCIO
-        const validacion = validarLote(loteAgrupado);
+        validarLote(loteAgrupado); // Ahora modifica doc.validacion in-place
 
-        // Filtrar solo los válidos para procesar y Ordenar (ORIGEN va primero que ACTUALIZACION)
-        const documentosAProcesar = loteAgrupado
-            .filter(doc => doc.validacion.esValido)
-            .sort((a, b) => {
-                const tipoA = a.header.tipoRegistro;
-                const tipoB = b.header.tipoRegistro;
-                // ORIGEN < ACTUALIZACION (alfabéticamente O > A, así que lógica invertida o explicita)
-                if (tipoA === 'ORIGEN' && tipoB !== 'ORIGEN') return -1;
-                if (tipoA !== 'ORIGEN' && tipoB === 'ORIGEN') return 1;
-                return 0;
-            });
+        // Separar validos y omitidos
+        // Validos: esValido=true AND status!='OMITIDO'
+        const validos = loteAgrupado.filter(d => d.validacion.esValido && d.validacion.status !== 'OMITIDO');
 
-        if (documentosAProcesar.length === 0) {
+        // Omitidos: esValido=false OR status=='OMITIDO'
+        // Inicializamos lista con los que ya fallaron en validación
+        const omitidos = loteAgrupado.filter(d => !d.validacion.esValido || d.validacion.status === 'OMITIDO');
+
+        // Ordenar Validos: ORIGEN primero
+        validos.sort((a, b) => {
+            const tipoA = a.header.tipoRegistro;
+            const tipoB = b.header.tipoRegistro;
+            if (tipoA === 'ORIGEN' && tipoB !== 'ORIGEN') return -1;
+            if (tipoA !== 'ORIGEN' && tipoB === 'ORIGEN') return 1;
+            return 0;
+        });
+
+        // Filtrar solo los válidos para procesar (ya lo hicimos arriba en const validos)
+
+        if (loteAgrupado.length === 0) {
             return {
                 success: false,
-                message: 'No se encontraron documentos válidos para procesar.',
-                detalles: loteAgrupado.map(d => ({ ref: d.header.refCta, errores: d.validacion.errores }))
+                message: 'El archivo no contiene registros válidos o está vacío.'
             };
         }
 
@@ -46,24 +52,40 @@ function ejecutarImportacion(fileContent) {
         let procesados = 0;
         let nuevosSiniestros = 0;
 
-        documentosAProcesar.forEach(doc => {
-            // PASO 4: MOTOR ALTA EXPRESS
-            let ids = {};
-            if (doc.header.tipoRegistro === 'ORIGEN') {
-                const entidades = _findOrCreateEntities(doc.header);
-                ids = entidades.ids;
-                if (entidades.nuevoSiniestro) nuevosSiniestros++;
-            }
+        validos.forEach(doc => {
+            try {
+                // PASO 4: MOTOR ALTA EXPRESS
+                let ids = {};
+                if (doc.header.tipoRegistro === 'ORIGEN') {
+                    const entidades = _findOrCreateEntities(doc.header);
+                    ids = entidades.ids;
+                    if (entidades.nuevoSiniestro) nuevosSiniestros++;
+                }
 
-            // PASO 5: PERSISTENCIA COMUNICADOS Y ACTUALIZACIONES
-            const resultadoPersistencia = _persistirDocumento(doc, ids);
+                // PASO 5: PERSISTENCIA COMUNICADOS Y ACTUALIZACIONES
+                const resultadoPersistencia = _persistirDocumento(doc, ids);
 
-            // PASO 6: PERSISTENCIA PRESUPUESTO
-            if (resultadoPersistencia && resultadoPersistencia.idActualizacion) {
-                _guardarLineasPresupuesto(resultadoPersistencia.idActualizacion, doc.lineas);
-                procesados++;
+                // PASO 6: PERSISTENCIA PRESUPUESTO
+                if (resultadoPersistencia && resultadoPersistencia.idActualizacion) {
+                    _guardarLineasPresupuesto(resultadoPersistencia.idActualizacion, doc.lineas);
+                    procesados++;
+                }
+            } catch (err) {
+                // Si falla persistencia individual, mover a omitidos
+                console.error(`Error persistiendo ${doc.header.refCta}:`, err);
+                omitidos.push({
+                    header: doc.header,
+                    validacion: { esValido: false, status: 'ERROR_PERSISTENCIA', motivo: err.message, errores: [err.message] }
+                });
+                // No incrementamos procesados
             }
         });
+
+        // Generar CSV de errores si hay omitidos
+        let csvErrorContent = null;
+        if (omitidos.length > 0) {
+            csvErrorContent = _generarCsvErrores(omitidos);
+        }
 
         return {
             success: true,
@@ -72,13 +94,14 @@ function ejecutarImportacion(fileContent) {
                 totalDocumentos: loteAgrupado.length,
                 procesados: procesados,
                 nuevosSiniestros: nuevosSiniestros,
-                errores: loteAgrupado.length - procesados
+                omitidos: omitidos.length
             },
+            csvErrorContent: csvErrorContent,
             detalles: loteAgrupado.map(d => ({
                 ref: d.header.refCta,
                 comunicado: d.header.comunicadoId,
-                valido: d.validacion.esValido,
-                errores: d.validacion.errores
+                valido: d.validacion.esValido && d.validacion.status !== 'OMITIDO',
+                errores: d.validacion.motivo ? [d.validacion.motivo] : d.validacion.errores
             }))
         };
 
@@ -169,39 +192,104 @@ function parseImportFile(csvInfo) {
 }
 
 /**
- * PASO 3: VALIDACIÓN DE NEGOCIO
+ * PASO 3: VALIDACIÓN DE NEGOCIO Y OMISIÓN
  */
 function validarLote(loteAgrupado) {
     const cuentasResp = readAllRows('cuentas');
+    // Para validar relaciones padre-hijo correctamente, necesitamos saber si el padre (comunicado) existe
+    // no solo la cuenta.
+    const comunicadosResp = readAllRows('comunicados');
+
     const cuentasExistentes = cuentasResp.success ? cuentasResp.data : [];
+    const comunicadosExistentes = comunicadosResp.success ? comunicadosResp.data : [];
 
     loteAgrupado.forEach(doc => {
-        const errs = [];
 
-        // Check 1: Financiero
-        const diff = Math.abs(doc.header.totalPdf - doc.validacion.sumaLineas);
-        if (diff > 1) { // Tolerancia $1
-            errs.push(`Descuadre financiero: Finiquito ${doc.header.totalPdf} vs Suma ${doc.validacion.sumaLineas}`);
+        // Reset status
+        doc.validacion = {
+            esValido: true,
+            status: 'OK',
+            motivo: null,
+            errores: [],
+            sumaLineas: doc.validacion.sumaLineas // Mantener la suma calculada en parser
+        };
+
+        // 1. Datos Incompletos
+        if (!doc.header.refCta || !doc.header.comunicadoId) {
+            doc.validacion.esValido = false;
+            doc.validacion.status = 'OMITIDO';
+            doc.validacion.motivo = 'Datos clave faltantes (Ref o Comunicado)';
+            return;
         }
 
-        // Check 2: Integridad
-        const existeCuenta = cuentasExistentes.some(c => c.referencia === doc.header.refCta || c.cuenta === doc.header.refCta);
+        if (!doc.header.totalPdf || doc.header.totalPdf <= 0) {
+            doc.validacion.esValido = false;
+            doc.validacion.status = 'OMITIDO';
+            doc.validacion.motivo = 'Monto financiero inválido o faltante';
+            return;
+        }
+
+        // Check Financiero
+        const diff = Math.abs(doc.header.totalPdf - doc.validacion.sumaLineas);
+        if (diff > 1) {
+            doc.validacion.esValido = false;
+            doc.validacion.status = 'OMITIDO';
+            doc.validacion.motivo = `Descuadre: Header(${doc.header.totalPdf}) vs Lineas(${doc.validacion.sumaLineas})`;
+            return;
+        }
+
+        // 2. Lógica de Relaciones
+        // Buscar Cuenta
+        const cuentaObj = cuentasExistentes.find(c => c.referencia === doc.header.refCta || c.cuenta === doc.header.refCta);
+        const idCuenta = cuentaObj ? cuentaObj.id : null;
 
         if (doc.header.tipoRegistro === 'ACTUALIZACION') {
-            if (!existeCuenta) {
-                errs.push('Padre no encontrado: La referencia no existe para ACTUALIZACION.');
-            }
-        } else if (doc.header.tipoRegistro === 'ORIGEN') {
-            if (!existeCuenta) {
-                doc.validacion.esAltaExpress = true; // Flag informativo
-            }
-        } else {
-            errs.push(`Tipo de registro desconocido: ${doc.header.tipoRegistro}`);
-        }
+            // Regla: Debe existir el comunicado padre
+            // Buscamos en memoria si existe el comunicado para esa cuenta y ese ID
+            // Nota: idReferencia se necesita para buscar en comunicadosExistentes
 
-        if (errs.length > 0) {
+            if (!idCuenta) {
+                doc.validacion.esValido = false;
+                doc.validacion.status = 'OMITIDO';
+                doc.validacion.motivo = 'No existe la Referencia (Cuenta) para esta Actualización';
+                return;
+            }
+
+            const existeComunicado = comunicadosExistentes.some(c =>
+                String(c.idReferencia) === String(idCuenta) &&
+                String(c.comunicado) === String(doc.header.comunicadoId)
+            );
+
+            // Tambien verificar si viene en el mismo lote como ORIGEN previo (el sort ya puso origenes antes)
+            // Pero aqui estamos validando todo el lote.
+            // Si el ORIGEN del mismo comunicado está en este lote y es válido, entonces esta actualizacion es válida.
+            // Buscamos en el lote un doc con mismo ref/comunicado y tipo ORIGEN
+            const origenEnLote = loteAgrupado.find(d =>
+                d.header.refCta === doc.header.refCta &&
+                d.header.comunicadoId === doc.header.comunicadoId &&
+                d.header.tipoRegistro === 'ORIGEN' &&
+                d.validacion.esValido // Asume validación secuencial o iterativa? forEach es secuencial.
+                // Si el origen está mas abajo en la lista, aun no ha sido validado, pero 'esValido' init true.
+            );
+
+            if (!existeComunicado && !origenEnLote) {
+                doc.validacion.esValido = false;
+                doc.validacion.status = 'OMITIDO';
+                doc.validacion.motivo = 'No existe el Comunicado Origen (Padre)';
+                return;
+            }
+        }
+        else if (doc.header.tipoRegistro === 'ORIGEN') {
+            // Alta Express Flag
+            // Si no existe cuenta, se marcará para crear, eso es valido.
+            if (!idCuenta) {
+                doc.validacion.esAltaExpress = true;
+            }
+        }
+        else {
             doc.validacion.esValido = false;
-            doc.validacion.errores = errs;
+            doc.validacion.status = 'OMITIDO';
+            doc.validacion.motivo = `Tipo registro desconocido: ${doc.header.tipoRegistro}`;
         }
     });
 }
@@ -412,4 +500,26 @@ function parseNumeric(value) {
     const clean = String(value).replace(/[$,]/g, '');
     const num = parseFloat(clean);
     return isNaN(num) ? 0 : num;
+}
+
+/**
+ * Genera CSV de Errores
+ */
+function _generarCsvErrores(listaOmitidos) {
+    // Encabezados
+    const headers = ['REF_CTA', 'COMUNICADO_ID', 'TIPO', 'MOTIVO_ERROR'];
+    let csvString = headers.join(',') + '\n';
+
+    listaOmitidos.forEach(item => {
+        const row = [
+            `"${item.header.refCta || ''}"`,
+            `"${item.header.comunicadoId || ''}"`,
+            `"${item.header.tipoRegistro || ''}"`,
+            `"${item.validacion.motivo || item.validacion.errores.join('; ') || 'Error Desconocido'}"`
+        ];
+        csvString += row.join(',') + '\n';
+    });
+
+    // Retornar base64 para facilitar descarga en frontend sin blobs raros
+    return Utilities.base64Encode(csvString);
 }

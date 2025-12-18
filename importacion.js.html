@@ -132,16 +132,40 @@
             const resumen = result.resumen || {};
             dom.previewSummary.innerHTML = `
                 <strong>Procesados:</strong> ${resumen.procesados || 0} <span class="mx-2">|</span>
-                <strong>Errores:</strong> ${resumen.errores || 0} <span class="mx-2">|</span>
+                <strong>Omitidos:</strong> ${resumen.omitidos || 0} <span class="mx-2">|</span>
                 <strong>Nuevos Siniestros:</strong> ${resumen.nuevosSiniestros || 0}
             `;
+
+            // Manejo de Reporte de Errores
+            if (resumen.omitidos > 0 && result.csvErrorContent) {
+                dom.errorReportContainer.classList.remove('d-none');
+                dom.errorReportMsg.textContent = `Atención: Se omitieron ${resumen.omitidos} registros por errores o datos faltantes.`;
+
+                // Configurar descarga
+                dom.btnDownloadErrors.onclick = () => {
+                    _descargarCsv(result.csvErrorContent, `Errores_Importacion_${new Date().toISOString().slice(0, 10)}.csv`);
+                };
+            } else {
+                dom.errorReportContainer.classList.add('d-none');
+            }
 
             const detalles = result.detalles || [];
 
             const html = detalles.map(d => {
-                const badgeEstado = d.valido
-                    ? '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>PROCESADO</span>'
-                    : '<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>ERROR</span>';
+                let badgeClass = 'bg-secondary';
+                let badgeText = 'DESCONOCIDO';
+
+                if (d.valido) {
+                    badgeClass = 'bg-success';
+                    badgeText = '<i class="bi bi-check-circle me-1"></i>PROCESADO';
+                } else {
+                    // Distinguir entre omitido y error fatal si fuera necesario, 
+                    // pero aqui todo lo no valido es omitido/error
+                    badgeClass = 'bg-warning text-dark';
+                    badgeText = '<i class="bi bi-exclamation-triangle me-1"></i>OMITIDO';
+                }
+
+                const badgeEstado = `<span class="badge ${badgeClass}">${badgeText}</span>`;
 
                 const erroresHtml = d.errores && d.errores.length > 0
                     ? `<ul class="mb-0 text-danger ps-3">${d.errores.map(e => `<li>${e}</li>`).join('')}</ul>`
@@ -151,7 +175,7 @@
                     <tr>
                         <td class="fw-bold">${d.ref || '-'}</td>
                         <td>${d.comunicado || '-'}</td>
-                        <td><small class="text-muted">UNK</small></td> <!-- Tipo no retornado en detalle ligero -->
+                        <td><small class="text-muted">UNK</small></td> 
                         <td class="text-end font-monospace text-muted">-</td>
                         <td><small class="text-muted">-</small></td>
                         <td class="text-center">${badgeEstado}</td>
@@ -163,12 +187,22 @@
             dom.previewBody.innerHTML = html;
         };
 
+        const _descargarCsv = (base64Content, filename) => {
+            const link = document.createElement('a');
+            link.href = 'data:text/csv;base64,' + base64Content;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
         const _showLoader = (show, msg) => {
             if (show) {
                 dom.loader.classList.remove('d-none');
                 dom.loaderMsg.textContent = msg;
                 dom.btnAnalizar.disabled = true;
                 dom.dropZone.classList.add('d-none');
+                dom.errorReportContainer.classList.add('d-none'); // Hide previous errors
             } else {
                 dom.loader.classList.add('d-none');
                 dom.btnAnalizar.disabled = false;
@@ -196,6 +230,11 @@
             dom.previewContainer = document.getElementById('preview-container');
             dom.previewBody = document.getElementById('preview-body');
             dom.previewSummary = document.getElementById('preview-summary');
+
+            // New elements
+            dom.errorReportContainer = document.getElementById('error-report-container');
+            dom.errorReportMsg = document.getElementById('error-report-msg');
+            dom.btnDownloadErrors = document.getElementById('btn-download-errors');
         };
 
         return {

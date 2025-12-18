@@ -44,6 +44,18 @@
             <p class="mt-3 text-muted fs-5 animate-pulse" id="loader-msg">Analizando estructura...</p>
         </div>
 
+        <!-- REPORTE DE ERRORES -->
+        <div id="error-report-container"
+            class="alert alert-warning d-flex align-items-center justify-content-between mb-4 d-none shadow-sm">
+            <div>
+                <i class="bi bi-exclamation-triangle-fill fs-4 me-3 text-warning"></i>
+                <span id="error-report-msg" class="fw-bold text-dark">Se omitieron registros.</span>
+            </div>
+            <button id="btn-download-errors" class="btn btn-warning text-dark fw-bold border-0">
+                <i class="bi bi-download me-2"></i> Descargar Reporte
+            </button>
+        </div>
+
         <!-- RESULTADOS / PREVIEW -->
         <div id="preview-container" class="d-none">
             <h6 class="fw-bold text-secondary mb-3"><i class="bi bi-table me-2"></i>Vista Previa del Lote</h6>
