@@ -12,10 +12,10 @@ function doGet(e) {
 /**
  * Permite incrustar archivos HTML dentro de otros, útil para plantillas.
  * @param {string} nombreArchivo El nombre del archivo HTML a incluir (sin la extensión .html).
- * @returns {string} El contenido del archivo HTML.
+ * @returns {string} El contenido del archivo HTML procesado.
  */
 function include(nombreArchivo) {
-    return HtmlService.createHtmlOutputFromFile(nombreArchivo).getContent();
+    return HtmlService.createTemplateFromFile(nombreArchivo).evaluate().getContent();
 }
 
 /**

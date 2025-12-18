@@ -155,6 +155,86 @@ function createRow(nombreTabla, datos) {
 }
 
 /**
+ * Crea MULTIPLES registros en la tabla especificada (Batch Insert).
+ * Optimizado para rendimiento: usa validacion en memoria y una sola escritura final.
+ * 
+ * @param {string} nombreTabla Clave en TABLE_DEFINITIONS (ej: 'comunicados').
+ * @param {Array<Object>} loteDatos Array de objetos a insertar.
+ * @returns {{ success: boolean, count: number, ids: Array<string|number>, message: string }}
+ */
+function createBatch(nombreTabla, loteDatos) {
+    if (!loteDatos || loteDatos.length === 0) return { success: true, count: 0, ids: [] };
+
+    const contexto = 'createBatch';
+    console.log(`[${contexto}] Iniciando batch insert de ${loteDatos.length} registros en "${nombreTabla}"`);
+
+    // 1. Validaciones previas
+    const def = TABLE_DEFINITIONS[nombreTabla];
+    if (!def) throw new Error(`Tabla "${nombreTabla}" no definida.`);
+
+    const { sheet, headers, rows } = obtenerDatosTabla(def.sheetName);
+    if (!sheet) throw new Error(`Hoja "${def.sheetName}" no encontrada.`);
+
+    // 2. Preparar ID Generator
+    // Encontrar último ID numérico para incrementar
+    const indiceId = buscarIndiceColumna(headers, def.headers?.[def.primaryField] || def.primaryField);
+    if (indiceId === -1) throw new Error(`Columna ID no encontrada en "${def.sheetName}".`);
+
+    // Calcular siguiente ID inicial
+    let nextId = 1;
+    if (rows.length > 0) {
+        const maxId = rows.reduce((max, row) => {
+            const val = parseFloat(row[indiceId]);
+            return (!isNaN(val) && val > max) ? val : max;
+        }, 0);
+        nextId = maxId + 1;
+    }
+
+    // 3. Procesar Lote
+    const matrixToWrite = [];
+    const generatedIds = [];
+
+    loteDatos.forEach((datos, i) => {
+        // Asignar ID si no viene
+        if (!datos[def.primaryField]) {
+            datos[def.primaryField] = nextId++;
+        }
+
+        // Mapear a fila de hoja
+        const fila = headers.map(header => {
+            const clave = buscarClavePorHeader(def.headers, header);
+            return datos[clave] !== undefined ? datos[clave] : ''; // null/undef -> cadena vacia
+        });
+
+        matrixToWrite.push(fila);
+        generatedIds.push(datos[def.primaryField]);
+    });
+
+    // 4. Escritura Batch (Una sola llamada a API)
+    try {
+        if (matrixToWrite.length > 0) {
+            // getRange(filaInicio, colInicio, filas, columnas)
+            const startRow = sheet.getLastRow() + 1;
+            sheet.getRange(startRow, 1, matrixToWrite.length, headers.length).setValues(matrixToWrite);
+        }
+
+        console.log(`[${contexto}] Éxito. Insertados ${matrixToWrite.length} registros.`);
+        return {
+            success: true,
+            count: matrixToWrite.length,
+            ids: generatedIds,
+            message: `Insertados ${matrixToWrite.length} registros correctamente.`
+        };
+
+    } catch (error) {
+        console.error(`[${contexto}] Error escribiendo batch:`, error);
+        return crearRespuestaError(`Error Batch Write en "${nombreTabla}": ${error.message}`, {
+            source: contexto, error
+        });
+    }
+}
+
+/**
  * Lee un único registro de la tabla por su ID.
  * @param {string} nombreTabla La clave de la tabla.
  * @param {string|number} id El ID del registro a buscar.
