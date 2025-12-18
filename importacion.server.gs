@@ -530,3 +530,70 @@ function _generarCsvErrores(listaOmitidos) {
     // Retornar base64 para facilitar descarga en frontend sin blobs raros
     return Utilities.base64Encode(csvString);
 }
+
+/**
+ * Convierte un archivo Excel (base64) a formato CSV
+ * @param {string} base64Data - Contenido del archivo Excel en base64
+ * @returns {Object} {success: boolean, csvContent?: string, message?: string}
+ */
+function convertirExcelACsv(base64Data) {
+    const contexto = 'convertirExcelACsv';
+    console.log(`[${contexto}] Iniciando conversión de Excel a CSV...`);
+
+    try {
+        // Decodificar base64 a blob
+        const blob = Utilities.newBlob(Utilities.base64Decode(base64Data));
+
+        // Crear archivo temporal en Drive
+        const tempFolder = DriveApp.getRootFolder();
+        const tempFile = tempFolder.createFile(blob.setName('temp_excel_' + new Date().getTime()));
+
+        // Convertir a Google Sheets
+        const spreadsheet = Drive.Files.insert(
+            {
+                title: tempFile.getName(),
+                mimeType: MimeType.GOOGLE_SHEETS
+            },
+            tempFile.getBlob()
+        );
+
+        // Abrir como Spreadsheet
+        const ss = SpreadsheetApp.openById(spreadsheet.id);
+        const sheet = ss.getSheets()[0];
+
+        // Obtener todos los datos
+        const data = sheet.getDataRange().getValues();
+
+        // Convertir a CSV
+        let csvContent = '';
+        data.forEach((row) => {
+            const csvRow = row.map(cell => {
+                let cellValue = String(cell || '');
+                if (cellValue.includes(',') || cellValue.includes('"') || cellValue.includes('\n')) {
+                    cellValue = '"' + cellValue.replace(/"/g, '""') + '"';
+                }
+                return cellValue;
+            }).join(',');
+            csvContent += csvRow + '\n';
+        });
+
+        // Limpiar archivos temporales
+        DriveApp.getFileById(tempFile.getId()).setTrashed(true);
+        DriveApp.getFileById(spreadsheet.id).setTrashed(true);
+
+        console.log(`[${contexto}] Conversión exitosa. Filas procesadas: ${data.length}`);
+
+        return {
+            success: true,
+            csvContent: csvContent,
+            message: 'Archivo Excel convertido exitosamente'
+        };
+
+    } catch (error) {
+        console.error(`[${contexto}] Error:`, error);
+        return {
+            success: false,
+            message: `Error al convertir Excel: ${error.message}`
+        };
+    }
+}

@@ -80,12 +80,43 @@
         const analizar = () => {
             if (!currentFile) return;
 
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                const content = e.target.result;
-                await _procesarBackend(content);
-            };
-            reader.readAsText(currentFile); // Leer como texto para CSV
+            const fileName = currentFile.name.toLowerCase();
+            const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+
+            if (isExcel) {
+                _procesarExcel(currentFile);
+            } else {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const content = e.target.result;
+                    await _procesarBackend(content);
+                };
+                reader.readAsText(currentFile);
+            }
+        };
+
+        const _procesarExcel = async (file) => {
+            _showLoader(true, 'Procesando archivo Excel...');
+
+            try {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const base64Data = e.target.result.split(',')[1];
+                    const result = await serverCall('convertirExcelACsv', base64Data);
+
+                    if (result.success) {
+                        await _procesarBackend(result.csvContent);
+                    } else {
+                        alert('Error al procesar Excel: ' + result.message);
+                        _showLoader(false);
+                    }
+                };
+                reader.readAsDataURL(file);
+            } catch (error) {
+                console.error(error);
+                alert('Error al leer el archivo Excel: ' + error.message);
+                _showLoader(false);
+            }
         };
 
         const _procesarBackend = async (csvContent) => {
