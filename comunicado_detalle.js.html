@@ -184,7 +184,7 @@
                 }
             } catch (e) {
                 console.error(e);
-                alert('Error al cargar: ' + e.message);
+                _showAlert('Error de Carga', e.message, 'error');
             }
         }
 
@@ -591,11 +591,11 @@
 
             // Reglas de Seguridad
             if (idx === 0) {
-                alert("No se puede eliminar el presupuesto de Origen.");
+                _showAlert('Acción No Permitida', 'No se puede eliminar el presupuesto de Origen.', 'warning');
                 return;
             }
             if (idx !== items.length - 1) {
-                alert("Solo se puede eliminar la última revisión para mantener la integridad de la secuencia.");
+                _showAlert('Acción No Permitida', 'Solo se puede eliminar la última revisión para mantener la integridad de la secuencia.', 'warning');
                 return;
             }
 
@@ -638,6 +638,20 @@
             const val = (obj && typeof obj === 'object') ? obj[prop] : (obj || '');
             input.value = val || '';
         }
+
+        function _showAlert(title, text, icon = 'info') {
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    title: title,
+                    text: text,
+                    icon: icon,
+                    confirmButtonColor: '#0d6efd'
+                });
+            } else {
+                alert(`${title}\n${text}`);
+            }
+        }
+
         function _setupCombobox(input, dropdown, items, keyProp, onSelect, alertElement = null, onInputHandler = null) {
             if (!input || !dropdown) return;
             const safeItems = Array.isArray(items) ? items : [];
@@ -1017,11 +1031,11 @@
                     aseguradora: dom.genAseguradora.value // Include Aseguradora
                 };
                 await serverCall('updateComunicado', state.id, payload);
-                alert('Guardado exitosamente.');
+                _showAlert('Éxito', 'Guardado exitosamente.', 'success');
                 await _loadData();
             } catch (error) {
                 console.error(error);
-                alert('Error: ' + error.message);
+                _showAlert('Error al Guardar', error.message, 'error');
             } finally {
                 state.saving = false;
                 dom.btnGuardar.disabled = false;

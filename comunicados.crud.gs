@@ -94,13 +94,14 @@ function fetchComunicadoCatalogs() {
         return {
             success: true,
             data: {
+                success: true, // Redundante para satisfacer chequeo del frontend
                 estados: processResponse(estados),
                 distritosRiego: processResponse(distritos),
                 siniestros: processResponse(siniestros),
                 ajustadores: processResponse(ajustadores),
                 aseguradoras: processResponse(aseguradoras),
                 empresas: processResponse(empresas),
-                debugLogs: debugLog // Devolver logs dentro de data para sobrevivir al unwrap
+                debugLogs: debugLog
             }
         };
 

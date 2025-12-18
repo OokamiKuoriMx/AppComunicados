@@ -20,6 +20,7 @@
         };
 
         let currentFile = null;
+        let currentCsvContent = null; // Store for confirmation step
 
         const init = () => {
             _cacheDom();
@@ -77,6 +78,11 @@
             dom.btnAnalizar.disabled = true;
             dom.previewContainer.classList.add('d-none');
             dom.previewBody.innerHTML = '';
+
+            // Preview additions
+            dom.btnConfirmar.classList.add('d-none');
+            dom.errorReportContainer.classList.add('d-none');
+            currentCsvContent = null;
         };
 
         const analizar = () => {
@@ -122,13 +128,37 @@
         };
 
         const _procesarBackend = async (csvContent) => {
-            _showLoader(true, 'Analizando, Validando y Persistiendo Datos...');
+            _showLoader(true, 'Analizando archivo y catálogos...');
+            currentCsvContent = csvContent; // Save for later
 
             try {
-                // Llamada al orquestador backend (Paso 7)
-                const result = await serverCall('ejecutarImportacion', csvContent);
+                // PASO 1: Previsualización (Solo Lectura)
+                // serverCall devuelve directamente 'data' si es exitoso, y lanza error si falla.
+                const data = await serverCall('previsualizarImportacion', csvContent);
 
-                _renderResultados(result);
+                if (data) {
+                    _renderResultados(data);
+                } else {
+                    throw new Error('La respuesta de previsualización esta vacía.');
+                }
+
+            } catch (error) {
+                console.error(error);
+                alert('Error en el análisis: ' + error.message);
+            } finally {
+                _showLoader(false);
+            }
+        };
+
+        const confirmar = async () => {
+            if (!currentCsvContent) return;
+
+            _showLoader(true, 'Guardando datos en la base de datos...');
+            dom.btnConfirmar.disabled = true;
+
+            try {
+                // PASO 2: Ejecución Real
+                const result = await serverCall('ejecutarImportacion', currentCsvContent);
 
                 if (result.success) {
                     if (globalThis.Swal) {
@@ -142,77 +172,97 @@
                         alert(`Importación Completada.\n${result.message}`);
                     }
 
-                    // Recargar tabla principal si existe el módulo Comunicados
+                    // Recargar tabla principal
                     if (globalThis.Comunicados && typeof Comunicados.recargar === 'function') {
                         Comunicados.recargar();
                     }
-                } else {
-                    alert('Error en la importación: ' + result.message);
-                }
 
+                    // Cerrar modal o reiniciar
+                    reset();
+                    const modalEl = document.getElementById('modalImportacion');
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+
+                } else {
+                    alert('Error al guardar: ' + result.message);
+                    dom.btnConfirmar.disabled = false;
+                }
             } catch (error) {
                 console.error(error);
-                alert('Error crítico de comunicación: ' + error.message);
+                alert('Error crítico al guardar: ' + error.message);
+                dom.btnConfirmar.disabled = false;
             } finally {
                 _showLoader(false);
             }
         };
 
-        const _renderResultados = (result) => {
+        const _renderResultados = (data) => {
             dom.previewContainer.classList.remove('d-none');
             dom.previewBody.innerHTML = '';
 
-            const resumen = result.resumen || {};
+            const resumen = data.resumen || {};
+            const filas = data.filas || [];
+
             dom.previewSummary.innerHTML = `
-                <strong>Procesados:</strong> ${resumen.procesados || 0} <span class="mx-2">|</span>
-                <strong>Omitidos:</strong> ${resumen.omitidos || 0} <span class="mx-2">|</span>
-                <strong>Nuevos Siniestros:</strong> ${resumen.nuevosSiniestros || 0}
+                <strong>Total Filas:</strong> ${resumen.total || 0} <span class="mx-2">|</span>
+                <strong>Válidos:</strong> ${resumen.validos || 0} <span class="mx-2">|</span>
+                <strong>Omitidos/Errores:</strong> ${resumen.omitidos || 0}
             `;
 
-            // Manejo de Reporte de Errores
-            if (resumen.omitidos > 0 && result.csvErrorContent) {
-                dom.errorReportContainer.classList.remove('d-none');
-                dom.errorReportMsg.textContent = `Atención: Se omitieron ${resumen.omitidos} registros por errores o datos faltantes.`;
+            // Mostrar botón Confirmar solo si hay válidos > 0
+            if (resumen.validos > 0) {
+                dom.btnConfirmar.classList.remove('d-none');
+                dom.btnConfirmar.disabled = false;
+                dom.btnConfirmar.onclick = confirmar;
+            } else {
+                dom.btnConfirmar.classList.add('d-none');
+            }
 
-                // Configurar descarga
-                dom.btnDownloadErrors.onclick = () => {
-                    _descargarCsv(result.csvErrorContent, `Errores_Importacion_${new Date().toISOString().slice(0, 10)}.csv`);
-                };
+            // Reporte de errores (si tenemos CSV de errores, aunque en preview quizas no generamos el CSV file string aun, 
+            // pero podemos mostrar el aviso visual)
+            if (resumen.omitidos > 0) {
+                dom.errorReportContainer.classList.remove('d-none');
+                dom.errorReportMsg.textContent = `Atención: ${resumen.omitidos} registros tienen problemas y NO se importarán.`;
+                // En preview mode quizas no tenemos el CSV generado, ocultar botón de descarga o manejarlo diferente
+                dom.btnDownloadErrors.classList.add('d-none'); // Ocultar descarga en preview
             } else {
                 dom.errorReportContainer.classList.add('d-none');
             }
 
-            const detalles = result.detalles || [];
-
-            const html = detalles.map(d => {
+            const html = filas.map(d => {
                 let badgeClass = 'bg-secondary';
                 let badgeText = 'DESCONOCIDO';
 
-                if (d.valido) {
-                    badgeClass = 'bg-success';
-                    badgeText = '<i class="bi bi-check-circle me-1"></i>PROCESADO';
-                } else {
-                    // Distinguir entre omitido y error fatal si fuera necesario, 
-                    // pero aqui todo lo no valido es omitido/error
+                if (d.status === 'OMITIDO') {
                     badgeClass = 'bg-warning text-dark';
                     badgeText = '<i class="bi bi-exclamation-triangle me-1"></i>OMITIDO';
+                } else {
+                    badgeClass = 'bg-success';
+                    badgeText = '<i class="bi bi-check-circle me-1"></i>VÁLIDO';
                 }
 
                 const badgeEstado = `<span class="badge ${badgeClass}">${badgeText}</span>`;
 
-                const erroresHtml = d.errores && d.errores.length > 0
-                    ? `<ul class="mb-0 text-danger ps-3">${d.errores.map(e => `<li>${e}</li>`).join('')}</ul>`
-                    : '<span class="text-muted fst-italic">Sin observaciones</span>';
+                // Analisis de entidades nuevas
+                const analisisBadges = [];
+                if (d.analisis) {
+                    if (d.analisis.cuenta.status === 'NUEVO') analisisBadges.push('<span class="badge bg-info text-dark ms-1">Nueva Cuenta</span>');
+                    if (d.analisis.siniestro.status === 'NUEVO') analisisBadges.push('<span class="badge bg-purple ms-1" style="background-color: #6f42c1;">Nuevo Siniestro</span>');
+                    if (d.analisis.distrito.status === 'NUEVO') analisisBadges.push('<span class="badge bg-info text-dark ms-1">Nuevo DR</span>');
+                }
 
                 return `
                     <tr>
-                        <td class="fw-bold">${d.ref || '-'}</td>
+                        <td class="fw-bold">
+                            ${d.ref || '-'}
+                            ${analisisBadges.join('')}
+                        </td>
                         <td>${d.comunicado || '-'}</td>
-                        <td><small class="text-muted">UNK</small></td> 
-                        <td class="text-end font-monospace text-muted">-</td>
-                        <td><small class="text-muted">-</small></td>
+                        <td><small class="text-muted">${d.tipo || 'UNK'}</small></td> 
+                        <td class="text-end font-monospace">${d.monto ? '$' + parseFloat(d.monto).toLocaleString() : '-'}</td>
+                        <td class="text-end font-monospace text-muted small">${d.sumaLineas ? '$' + parseFloat(d.sumaLineas).toLocaleString() : '-'}</td>
                         <td class="text-center">${badgeEstado}</td>
-                        <td class="small">${erroresHtml}</td>
+                        <td class="small text-danger">${d.motivo || ''}</td>
                     </tr>
                 `;
             }).join('');
@@ -272,6 +322,7 @@
             dom.errorReportContainer = document.getElementById('error-report-container');
             dom.errorReportMsg = document.getElementById('error-report-msg');
             dom.btnDownloadErrors = document.getElementById('btn-download-errors');
+            dom.btnConfirmar = document.getElementById('btn-confirmar-importacion'); // New
         };
 
 

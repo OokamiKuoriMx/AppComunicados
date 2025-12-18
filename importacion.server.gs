@@ -7,6 +7,93 @@
  */
 
 /**
+ * API PÚBLICA: Previsualizar Importación (Solo Lectura)
+ * Devuelve los datos parseados y validados para que el usuario confirme.
+ */
+function previsualizarImportacion(fileContent) {
+    const contexto = 'previsualizarImportacion';
+    console.log(`[${contexto}] Iniciando previsualización...`);
+
+    try {
+        // 1. REUTILIZAR PARSER Y CACHE
+        const loteAgrupado = parseImportFile(fileContent);
+        const cache = _loadCatalogsCache();
+
+        // 2. SIMULAR VALIDACIÓN (Incluye Auto-Corrección)
+        validarLote(loteAgrupado, cache);
+
+        // 3. ENRIQUECER PARA VISTA PREVIA
+        const previewData = loteAgrupado.map(doc => {
+            const h = doc.header;
+            const v = doc.validacion;
+            const esValido = v.esValido && v.status !== 'OMITIDO';
+
+            // Detección de "Nuevos" Catálogos
+            const analisis = {
+                cuenta: _checkStatus(cache.cuentas, ['referencia', 'cuenta'], h.refCta),
+                siniestro: _checkStatus(cache.siniestros, 'siniestro', h.refSiniestro),
+                ajustador: _checkStatus(cache.ajustadores, ['nombreAjustador', 'nombre'], h.ajustador),
+                distrito: _checkStatus(cache.distritosRiego, 'distritoRiego', h.distritoRiego),
+                aseguradora: _checkStatus(cache.aseguradoras, 'descripción', h.aseguradora)
+            };
+
+            return {
+                ref: h.refCta,
+                comunicado: h.comunicadoId,
+                tipo: h.tipoRegistro,
+                fecha: h.fechaDoc ? new Date(h.fechaDoc).toISOString().split('T')[0] : '',
+                monto: h.totalPdf,
+                sumaLineas: v.sumaLineas,
+                status: v.status, // OK, OMITIDO
+                esValido: esValido,
+                motivo: v.motivo || (v.errores ? v.errores.join(', ') : ''),
+                analisis: analisis
+            };
+        });
+
+        const resumen = {
+            total: previewData.length,
+            validos: previewData.filter(d => d.esValido).length,
+            omitidos: previewData.filter(d => !d.esValido).length
+        };
+
+        return {
+            success: true,
+            data: {
+                resumen: resumen,
+                filas: previewData
+            }
+        };
+
+    } catch (error) {
+        console.error(`Error en ${contexto}:`, error);
+        const msg = (error instanceof Error) ? error.message : String(error);
+        return { success: false, message: msg || 'Error desconocido en previsualización' };
+    }
+}
+
+/**
+ * Helper para verificar si un valor existe en cache o será nuevo
+ */
+function _checkStatus(list, fields, value) {
+    if (!value) return { status: 'VACIO', valor: '' };
+    const cleanVal = String(value).toUpperCase().trim();
+
+    // Check exist
+    const exists = list.some(item => {
+        if (Array.isArray(fields)) {
+            return fields.some(f => String(item[f] || '').toUpperCase().trim() === cleanVal);
+        }
+        return String(item[fields] || '').toUpperCase().trim() === cleanVal;
+    });
+
+    return {
+        status: exists ? 'EXISTE' : 'NUEVO',
+        valor: value
+    };
+}
+
+/**
  * PASO 7 (BACKEND): CONTROLADOR PRINCIPAL
  * Orquesta la importación completa usando Persistencia Batch.
  * @param {string} fileContent - Contenido de texto del archivo CSV.
@@ -59,6 +146,26 @@ function ejecutarImportacion(fileContent) {
             _updateCache(cache, 'aseguradoras', res.ids, newAseguradoras, 'descripción');
         }
 
+        // --- 1.5. DISTRITOS RIEGO & AJUSTADORES ---
+        // Identificar Distritos únicos nuevos
+        const newDistritos = _extractUnique(validos, 'distritoRiego', cache.distritosRiego, 'distritoRiego');
+        if (newDistritos.length > 0) {
+            const res = createBatch('distritosRiego', newDistritos.map(d => ({ distritoRiego: d })));
+            _updateCache(cache, 'distritosRiego', res.ids, newDistritos, 'distritoRiego');
+        }
+
+        // Identificar Ajustadores únicos nuevos (si vienen en archivo)
+        const newAjustadores = _extractUnique(validos, 'ajustador', cache.ajustadores, 'nombreAjustador');
+        if (newAjustadores.length > 0) {
+            // Validar que no esten vacios
+            const validNewAjustadores = newAjustadores.filter(a => a && a.length > 2); // Simple validation
+            if (validNewAjustadores.length > 0) {
+                const res = createBatch('ajustadores', validNewAjustadores.map(a => ({ nombreAjustador: a, nombre: a })));
+                _updateCache(cache, 'ajustadores', res.ids, validNewAjustadores, 'nombreAjustador');
+            }
+        }
+
+
         // --- 2. SINIESTROS & CUENTAS ---
         // 2a. Siniestros (requiere idAseguradora del paso 1)
         const siniestrosMap = _prepareSiniestrosBatch(validos, cache);
@@ -69,7 +176,7 @@ function ejecutarImportacion(fileContent) {
         }
 
         // 2b. Cuentas (Referencias)
-        // Ajustador Default (Charles Taylor)
+        // Ajustador Default (Charles Taylor) - Se usa de Fallback
         const idAjustadorDefault = _findIdAjustadorDefault(cache.ajustadores);
 
         const cuentasMap = _prepareCuentasBatch(validos, cache, idAjustadorDefault);
@@ -138,15 +245,32 @@ function ejecutarImportacion(fileContent) {
                 }
             } else {
                 // YA EXISTE O ES ACTUALIZACION
-                if (!existingCom) {
-                    // Error en Actualizacion sin padre. Debería haber fallado en validación, pero por seguridad:
-                    _markError(doc, omitidos, "Error Lógico: Comunicado padre no encontrado para Actualización");
-                    return;
+                let tempId = null;
+
+                if (existingCom) {
+                    tempId = existingCom.id;
+                } else {
+                    // Si no existe en BD, verificar si lo estamos creando en ESTE batch (Dependencia Lote)
+                    const queuedItem = comsToInsertMap.find(q =>
+                        String(q.data.idReferencia) === String(idReferencia) &&
+                        String(q.data.comunicado) === String(doc.header.comunicadoId)
+                    );
+
+                    if (queuedItem) {
+                        // VINCULACIÓN EN LOTE:
+                        // Aun no tenemos ID real, pero lo agregamos a la lista de docs que esperan ese ID.
+                        queuedItem.docRefs.push(doc);
+                        // No asignamos _tempIdComunicado aun, se asignará cuando se cree el batch.
+                        return; // OJO: Salimos, la inyección de ID ocurrirá mas abajo (Line 266)
+                    } else {
+                        // Error real: No existe en BD y no se está creando.
+                        _markError(doc, omitidos, "Error Lógico: Comunicado padre no encontrado para Actualización");
+                        return;
+                    }
                 }
-                // Usamos el existente
-                // Pero necesitamos agregarlo a un mapa para procesar sus hijos (DG, Act) 
-                // simulando que ya tenemos su ID
-                doc._tempIdComunicado = existingCom.id;
+
+                // Si encontramos existente directo:
+                doc._tempIdComunicado = tempId;
             }
         });
 
@@ -188,17 +312,36 @@ function ejecutarImportacion(fileContent) {
             if (isOrigen && !existeDG) {
                 const idEstado = _resolveIdFromCache(cache.estados, doc.header.estado, 'estado');
                 const idSiniestro = _resolveIdFromCache(cache.siniestros, doc.header.refSiniestro, 'siniestro');
+                const idDR = _resolveIdFromCache(cache.distritosRiego, doc.header.distritoRiego, 'distritoRiego');
+
+                // Resolver Ajustador para DG: Prioridad File -> Default
+                // Nota: Cuentas ya tiene el Link, pero DG tambien lo pide segun esquema.
+                // Es redundante pero lo llenamos si podemos.
+                let idAjustador = _resolveIdFromCache(cache.ajustadores, doc.header.ajustador, ['nombreAjustador', 'nombre']);
+                if (!idAjustador) idAjustador = _findIdAjustadorDefault(cache.ajustadores);
 
                 batchDatosGenerales.push({
                     idComunicado: idComunicado,
-                    descripcion: 'Importación Auto - ' + doc.header.tipoRegistro,
+                    descripcion: doc.header.descripcion || `${doc.header.refCta}-${doc.header.comunicadoId}`, // Prioridad a columna Descripcion
                     fecha: doc.header.fechaDoc,
                     idEstado: idEstado,
-                    idSiniestro: idSiniestro
+                    idSiniestro: idSiniestro,
+                    idDR: idDR,
+                    idAjustador: idAjustador
                 });
 
                 // Hack: update cache local to prevent double insert if batch has dupes
                 cache.datosGenerales.push({ idComunicado: idComunicado });
+            }
+
+            // REGLA: Si viene una descripcion EXPLICITA en cualquier renglón (incluso actualización),
+            // actualizamos el registro de Datos Generales que acabamos de preparar (si existe).
+            // Esto permite que el registro L30A "substituya" la descripcion del L30.
+            if (doc.header.descripcion) {
+                const pendingDG = batchDatosGenerales.find(dg => String(dg.idComunicado) === String(idComunicado));
+                if (pendingDG) {
+                    pendingDG.descripcion = doc.header.descripcion;
+                }
             }
 
             // 5. Actualizaciones
@@ -217,7 +360,7 @@ function ejecutarImportacion(fileContent) {
                 revision: isOrigen ? 'Origen' : (doc.header.comunicadoId + ' (Imp)'),
                 monto: doc.header.totalPdf,
                 montoCapturado: null,
-                montoSupervisión: doc.header.montoSupervision,
+                montoSupervisión: (doc.header.totalPdf || 0) * 0.05, // Regla: 5% del Monto (Total PDF)
                 fecha: new Date(),
                 // Meta-data para vincular lineas despues
                 _docLineas: doc.lineas
@@ -291,6 +434,7 @@ function _loadCatalogsCache() {
         datosGenerales: readAllRows('datosGenerales').data || [],
         estados: readAllRows('estados').data || [],
         ajustadores: readAllRows('ajustadores').data || [],
+        distritosRiego: readAllRows('distritosRiego').data || [], // Cargar Distritos
         actualizaciones: readAllRows('actualizaciones').data || []
     };
 }
@@ -380,10 +524,14 @@ function _prepareCuentasBatch(validos, cache, idAjustadorDefault) {
         const key = String(ref).toUpperCase();
 
         if (!existMap.has(key) && !seen.has(key)) {
+            // Resolver Ajustador especifico de esta fila
+            let idAj = _resolveIdFromCache(cache.ajustadores, d.header.ajustador, ['nombreAjustador', 'nombre']);
+            if (!idAj) idAj = idAjustadorDefault;
+
             const newCta = {
                 referencia: ref,
                 cuenta: ref, // Duplicamos valor por diseño original
-                idAjustador: idAjustadorDefault,
+                idAjustador: idAj,
                 fechaAlta: new Date()
             };
             inserts.push(newCta);
@@ -421,22 +569,29 @@ function _markError(doc, omitidos, msg) {
 }
 
 function _buildResponse(success, msg, counts, omitidos, allDocs, csvContent) {
-    return {
+    const responseData = {
         success: success,
         message: msg,
         resumen: {
             totalDocumentos: allDocs.length,
-            procesados: counts.newComs + counts.newLines, // Proxies
+            procesados: counts ? (counts.newComs + counts.newLines) : 0,
             detallesTecnicos: counts,
-            omitidos: omitidos.length
+            omitidos: omitidos ? omitidos.length : 0
         },
         csvErrorContent: csvContent,
-        detalles: allDocs.map(d => ({
+        detalles: allDocs ? allDocs.map(d => ({
             ref: d.header.refCta,
             comunicado: d.header.comunicadoId,
+            tipo: d.header.tipoRegistro, // Add this to fix UNK in frontend
             valido: d.validacion.esValido && d.validacion.status !== 'OMITIDO',
             errores: d.validacion.motivo ? [d.validacion.motivo] : d.validacion.errores
-        }))
+        })) : []
+    };
+
+    return {
+        success: success,
+        message: msg,
+        data: responseData
     };
 }
 
@@ -482,7 +637,15 @@ function convertirExcelACsv(base64Data) {
             }).join(',');
             csvContent += csvRow + '\n';
         });
-        return { success: true, csvContent: csvContent };
+
+        return {
+            success: true,
+            data: {
+                success: true,
+                csvContent: csvContent,
+                message: 'Archivo Excel convertido exitosamente'
+            }
+        };
 
     } catch (error) {
         console.error(`[${contexto}] Error:`, error);
@@ -507,7 +670,7 @@ function parseImportFile(csvInfo) {
     const dataRows = rows.slice(1);
 
     const idxRef = headers.indexOf('REF_CTA');
-    const idxCom = headers.indexOf('COMUNICADO_ID');
+    const idxCom = headers.findIndex(h => h === 'COMUNICADO_ID' || h === 'COMUNICADO'); // Alias
     const idxTipo = headers.indexOf('TIPO_REGISTRO');
     const idxFecha = headers.indexOf('FECHA_DOC');
     const idxEstado = headers.indexOf('ESTADO');
@@ -516,11 +679,14 @@ function parseImportFile(csvInfo) {
     const idxFen = headers.indexOf('FENOMENO');
     const idxFi = headers.indexOf('FECHA_SINIESTRO_FI');
     const idxFondo = headers.indexOf('FONDO');
-    const idxTotal = headers.indexOf('TOTAL_DOC_PDF');
+    const idxDistrito = headers.indexOf('DISTRITO_RIEGO'); // Nuevo
+    const idxAjustador = headers.indexOf('AJUSTADOR'); // Nuevo
+    const idxDesc = headers.indexOf('DESCRIPCION'); // Nuevo: Opción explicita usuario
+    const idxTotal = headers.findIndex(h => h === 'TOTAL_DOC_PDF' || h === 'TOTAL_DOC_P'); // Alias por si viene cortado
     const idxConcepto = headers.indexOf('CONCEPTO_OBRA');
     const idxCat = headers.indexOf('CATEGORIA');
     const idxImporte = headers.indexOf('IMPORTE_RENGLON');
-    const idxSup = headers.indexOf('MONTO_SUPERVISION');
+    const idxSup = headers.findIndex(h => h === 'MONTO_SUPERVISION' || h === 'MONTO_SUPERV'); // Alias
 
     if (idxRef === -1 || idxCom === -1) throw new Error('Faltan columnas REF_CTA o COMUNICADO_ID');
 
@@ -529,15 +695,21 @@ function parseImportFile(csvInfo) {
     dataRows.forEach(row => {
         const refCta = String(row[idxRef] || '').trim().toUpperCase();
         const comId = String(row[idxCom] || '').trim().toUpperCase();
+        const tipoRegistro = idxTipo > -1 ? String(row[idxTipo] || 'ACTUALIZACION').trim().toUpperCase() : 'ACTUALIZACION';
+
         if (!refCta || !comId) return;
 
-        const key = `${refCta}|${comId}`;
+        // Clave única compuesta: Ref + ID + TIPO
+        // Esto permite que un ORIGEN y una ACTUALIZACION compartan el mismo ID (L30) pero sean objetos distintos.
+        const key = `${refCta}|${comId}|${tipoRegistro}`;
+
         if (!agrupado[key]) {
             agrupado[key] = {
                 header: {
                     refCta: refCta,
                     comunicadoId: comId,
-                    tipoRegistro: idxTipo > -1 ? String(row[idxTipo] || 'ACTUALIZACION').trim().toUpperCase() : 'ACTUALIZACION',
+                    descripcion: idxDesc > -1 ? String(row[idxDesc] || '').trim() : null, // Capturar descripcion
+                    tipoRegistro: tipoRegistro,
                     fechaDoc: idxFecha > -1 ? row[idxFecha] : null,
                     estado: idxEstado > -1 ? String(row[idxEstado] || '').toUpperCase() : '',
                     refSiniestro: idxSinRef > -1 ? String(row[idxSinRef] || '').toUpperCase() : '',
@@ -545,6 +717,8 @@ function parseImportFile(csvInfo) {
                     fenomeno: idxFen > -1 ? String(row[idxFen] || '').toUpperCase() : '',
                     fechaSiniestroFi: idxFi > -1 ? row[idxFi] : null,
                     fondo: idxFondo > -1 ? String(row[idxFondo] || '').toUpperCase() : '',
+                    distritoRiego: idxDistrito > -1 ? String(row[idxDistrito] || '').toUpperCase() : '',
+                    ajustador: idxAjustador > -1 ? String(row[idxAjustador] || '').toUpperCase() : '',
                     totalPdf: idxTotal > -1 ? (parseNumeric(row[idxTotal]) || 0) : 0,
                     montoSupervision: idxSup > -1 ? (parseNumeric(row[idxSup]) || 0) : 0
                 },
@@ -578,22 +752,59 @@ function validarLote(loteAgrupado, cache) {
             doc.validacion.esValido = false; doc.validacion.status = 'OMITIDO'; doc.validacion.motivo = 'Monto Financiaro invalido'; return;
         }
         const diff = Math.abs(doc.header.totalPdf - doc.validacion.sumaLineas);
-        if (diff > 1) {
-            doc.validacion.esValido = false; doc.validacion.status = 'OMITIDO'; doc.validacion.motivo = `Descuadre: ${doc.header.totalPdf} vs ${doc.validacion.sumaLineas}`; return;
+
+        // AUTO-CORRECCIÓN: Si hay líneas, la verdad está en la suma de líneas.
+        if (doc.validacion.sumaLineas > 0 && diff > 1) {
+            // Si el usuario puso un Header Total diferente a la suma, asumimos error de captura en el Header
+            // y priorizamos la suma de las líneas de desglose.
+            const oldTotal = doc.header.totalPdf;
+            doc.header.totalPdf = doc.validacion.sumaLineas;
+            doc.validacion.motivo = `Corregido: Total Header (${oldTotal}) ajustado a Suma Líneas (${doc.validacion.sumaLineas})`;
+            // No marcamos omitido, dejamos pasar.
+        } else if (doc.validacion.sumaLineas === 0 && doc.header.totalPdf > 0) {
+            // Caso: Actualización de Monto sin desglose (posible en ajustes directos)
+            // Se mantiene el totalPdf del header valido.
         }
 
         const cuentaObj = cuentasExistentes.find(c => c.referencia === doc.header.refCta || c.cuenta === doc.header.refCta);
         const idCuenta = cuentaObj ? cuentaObj.id : null;
 
         if (doc.header.tipoRegistro === 'ACTUALIZACION') {
-            if (!idCuenta) {
-                doc.validacion.esValido = false; doc.validacion.status = 'OMITIDO'; doc.validacion.motivo = 'No existe Referencia (Cuenta)'; return;
-            }
-            const existeComunicado = comunicadosExistentes.some(c => String(c.idReferencia) === String(idCuenta) && String(c.comunicado) === String(doc.header.comunicadoId));
-            const origenEnLote = loteAgrupado.find(d => d.header.refCta === doc.header.refCta && d.header.comunicadoId === doc.header.comunicadoId && d.header.tipoRegistro === 'ORIGEN' && d.validacion.esValido);
+            // 1. Validar REFERENCIA (Cuenta)
+            // Existe en DB o existe UN ORIGEN para esta cuenta en el lote?
+            const origenCuentaEnLote = loteAgrupado.find(d => d.header.refCta === doc.header.refCta && d.header.tipoRegistro === 'ORIGEN' && d.validacion.esValido);
 
-            if (!existeComunicado && !origenEnLote) {
-                doc.validacion.esValido = false; doc.validacion.status = 'OMITIDO'; doc.validacion.motivo = 'No existe Comunicado Origen'; return;
+            if (!idCuenta && !origenCuentaEnLote) {
+                doc.validacion.esValido = false;
+                doc.validacion.status = 'OMITIDO';
+                doc.validacion.motivo = 'No existe Referencia (Cuenta) ni Origen en lote';
+                return;
+            }
+
+            // 2. Validar COMUNICADO (Padre)
+            // Existe en DB estricto?
+            const existeComunicado = comunicadosExistentes.some(c => String(c.idReferencia) === String(idCuenta) && String(c.comunicado) === String(doc.header.comunicadoId));
+
+            // Existe en Lote estricto?
+            const origenComunicadoEnLote = origenCuentaEnLote && String(origenCuentaEnLote.header.comunicadoId) === String(doc.header.comunicadoId);
+
+            if (!existeComunicado && !origenComunicadoEnLote) {
+                // Caso especifico: Tenemos la cuenta (via lote) pero el ID no cuadra (L30 vs L30A)
+                if (origenCuentaEnLote) {
+                    doc.validacion.esValido = false;
+                    doc.validacion.status = 'OMITIDO';
+                    doc.validacion.motivo = `El ID Comunicado '${doc.header.comunicadoId}' no coincide con el Origen '${origenCuentaEnLote.header.comunicadoId}'. Deben ser iguales.`;
+                    return;
+                }
+
+                doc.validacion.esValido = false;
+                doc.validacion.status = 'OMITIDO';
+                doc.validacion.motivo = 'No existe Comunicado Origen';
+                return;
+            }
+
+            if (origenComunicadoEnLote) {
+                doc.validacion.motivo = 'Validado por dependencia en lote (Nuevo Origen)';
             }
         }
         else if (doc.header.tipoRegistro === 'ORIGEN') {
