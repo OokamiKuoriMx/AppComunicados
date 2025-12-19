@@ -41,52 +41,52 @@
             /* Fix for sticky resize gltich */
         }
 
-        /* Default Widths based on column index (approximate) */
+        /* Default Widths based on column index */
+
+        /* 1. Referencia */
         .sheet-table th:nth-child(1) {
-            width: 120px;
-        }
-
-        /* Referencia */
-        .sheet-table th:nth-child(2) {
-            width: 250px;
-        }
-
-        /* Comunicado */
-        .sheet-table th:nth-child(3) {
             width: 180px;
         }
 
-        /* Ajustador */
+        /* 2. Ajustador */
+        .sheet-table th:nth-child(2) {
+            width: 200px;
+        }
+
+        /* 3. Comunicado (Código/ID) */
+        .sheet-table th:nth-child(3) {
+            width: 80px;
+        }
+
+        /* 4. Siniestro */
         .sheet-table th:nth-child(4) {
-            width: 140px;
+            width: 120px;
         }
 
-        /* Siniestro */
+        /* 5. Aseguradora */
         .sheet-table th:nth-child(5) {
-            width: 140px;
+            width: 150px;
         }
 
-        /* Aseguradora */
+        /* 6. Fecha */
         .sheet-table th:nth-child(6) {
             width: 110px;
         }
 
-        /* Fecha */
+        /* 7. Descripcion */
         .sheet-table th:nth-child(7) {
-            width: 250px;
+            width: 300px;
         }
 
-        /* Descripcion */
+        /* 8. Distrito */
         .sheet-table th:nth-child(8) {
-            width: 150px;
+            width: 140px;
         }
 
-        /* Distrito */
+        /* 9. Estado */
         .sheet-table th:nth-child(9) {
-            width: 100px;
+            width: 120px;
         }
-
-        /* Estado */
 
         .sheet-table td,
         .sheet-table th {
@@ -204,10 +204,8 @@
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0" id="cat-table">
-                    <thead class="bg-light text-secondary">
-                        <tr id="cat-thead-row">
-                            <!-- Dynamic Headers -->
-                        </tr>
+                    <thead class="bg-light text-secondary" id="cat-thead">
+                        <!-- Header Content Injected Here -->
                     </thead>
                     <tbody id="cat-tbody">
                         <!-- Dynamic Data -->

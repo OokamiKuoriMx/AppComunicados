@@ -717,14 +717,23 @@ function readDatosGenerales() {
         console.log(`[${contexto}] Iniciando lectura directa...`);
 
         // Definición explícita para garantizar que existe
+        // Definición explícita con ALIAS para garantizar mapeo correcto
         const def = {
             sheetName: 'DatosGenerales',
             primaryField: 'id',
-            headers: [
-                'id', 'idComunicado', 'descripcion', 'fecha', 'idEstado',
-                'idDR', 'idEmpresa', 'fechaAsignacion', 'idSiniestro',
-                'idActualizacion', 'idAjustador'
-            ]
+            headers: {
+                id: ['id', 'ID'],
+                idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado'],
+                descripcion: ['descripcion', 'Descripción', 'Descripcion'],
+                fecha: ['fecha', 'Fecha'],
+                idEstado: ['idEstado', 'Estado', 'ID Estado'],
+                idDR: ['idDR', 'Distrito', 'Distrito de Riego', 'ID Distrito'],
+                idEmpresa: ['idEmpresa', 'Empresa'],
+                fechaAsignacion: ['fechaAsignacion', 'Fecha Asignación'],
+                idSiniestro: ['idSiniestro', 'Siniestro', 'ID Siniestro'],
+                idActualizacion: ['idActualizacion', 'Actualización'],
+                idAjustador: ['idAjustador', 'Ajustador', 'Nombre Ajustador', 'ID Ajustador']
+            }
         };
 
         const { headers, rows } = obtenerDatosTabla(def.sheetName);
@@ -750,6 +759,7 @@ function readDatosGenerales() {
         return {
             success: true,
             data: JSON.stringify(datos),
+            debugHeaders: headers, // DEBUG: Para diagnosticar columnas
             message: 'OK'
         };
 
@@ -771,11 +781,19 @@ function updateDatosGenerales(id, nuevosDatos) {
         const def = {
             sheetName: 'DatosGenerales',
             primaryField: 'id',
-            headers: [
-                'id', 'idComunicado', 'descripcion', 'fecha', 'idEstado',
-                'idDR', 'idEmpresa', 'fechaAsignacion', 'idSiniestro',
-                'idActualizacion', 'idAjustador'
-            ]
+            headers: {
+                id: ['id', 'ID'],
+                idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado'],
+                descripcion: ['descripcion', 'Descripción', 'Descripcion'],
+                fecha: ['fecha', 'Fecha'],
+                idEstado: ['idEstado', 'Estado', 'ID Estado'],
+                idDR: ['idDR', 'Distrito', 'Distrito de Riego', 'ID Distrito'],
+                idEmpresa: ['idEmpresa', 'Empresa'],
+                fechaAsignacion: ['fechaAsignacion', 'Fecha Asignación'],
+                idSiniestro: ['idSiniestro', 'Siniestro', 'ID Siniestro'],
+                idActualizacion: ['idActualizacion', 'Actualización'],
+                idAjustador: ['idAjustador', 'Ajustador', 'Nombre Ajustador', 'ID Ajustador']
+            }
         };
 
         const { headers, sheet, rows } = obtenerDatosTabla(def.sheetName);
@@ -834,11 +852,19 @@ function updateBatchDatosGenerales(updates) {
         const def = {
             sheetName: 'DatosGenerales',
             primaryField: 'id',
-            headers: [
-                'id', 'idComunicado', 'descripcion', 'fecha', 'idEstado',
-                'idDR', 'idEmpresa', 'fechaAsignacion', 'idSiniestro',
-                'idActualizacion', 'idAjustador'
-            ]
+            headers: {
+                id: ['id', 'ID'],
+                idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado'],
+                descripcion: ['descripcion', 'Descripción', 'Descripcion'],
+                fecha: ['fecha', 'Fecha'],
+                idEstado: ['idEstado', 'Estado', 'ID Estado'],
+                idDR: ['idDR', 'Distrito', 'Distrito de Riego', 'ID Distrito'],
+                idEmpresa: ['idEmpresa', 'Empresa'],
+                fechaAsignacion: ['fechaAsignacion', 'Fecha Asignación'],
+                idSiniestro: ['idSiniestro', 'Siniestro', 'ID Siniestro'],
+                idActualizacion: ['idActualizacion', 'Actualización'],
+                idAjustador: ['idAjustador', 'Ajustador', 'Nombre Ajustador', 'ID Ajustador']
+            }
         };
 
         const { headers, sheet, rows } = obtenerDatosTabla(def.sheetName);

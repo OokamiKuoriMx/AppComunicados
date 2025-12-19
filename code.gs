@@ -38,7 +38,13 @@ const TABLE_DEFINITIONS = {
     comunicados: {
         sheetName: 'Comunicados',
         primaryField: 'id',
-        headers: ['id', 'idReferencia', 'comunicado', 'status', 'idSustituido'],
+        headers: {
+            id: ['id', 'ID'],
+            idReferencia: ['idReferencia', 'Referencia', 'ID Referencia'],
+            comunicado: ['comunicado', 'Comunicado', 'Clave'],
+            status: ['status', 'Estatus', 'Estado'],
+            idSustituido: ['idSustituido', 'Sustituido Por']
+        },
         requiredFields: ['idReferencia', 'comunicado'],
         uniqueFields: []
     },
@@ -46,19 +52,19 @@ const TABLE_DEFINITIONS = {
     datosGenerales: {
         sheetName: 'DatosGenerales',
         primaryField: 'id',
-        headers: [
-            'id',
-            'idComunicado',
-            'descripcion',
-            'fecha',
-            'idEstado',
-            'idDR',
-            'idEmpresa',
-            'fechaAsignacion',
-            'idSiniestro',
-            'idActualizacion',
-            'idAjustador' // Asegurando compatibilidad con createRow/datosGen
-        ],
+        headers: {
+            id: ['id', 'ID'],
+            idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado', 'Clave', 'Folio'],
+            descripcion: ['descripcion', 'Descripción', 'Descripcion'],
+            fecha: ['fecha', 'Fecha'],
+            idEstado: ['idEstado', 'Estado', 'ID Estado'],
+            idDR: ['idDR', 'Distrito', 'Distrito de Riego', 'ID Distrito'],
+            idEmpresa: ['idEmpresa', 'Empresa'],
+            fechaAsignacion: ['fechaAsignacion', 'Fecha Asignación'],
+            idSiniestro: ['idSiniestro', 'Siniestro', 'ID Siniestro'],
+            idActualizacion: ['idActualizacion', 'Actualización'],
+            idAjustador: ['idAjustador', 'Ajustador', 'Nombre Ajustador', 'ID Ajustador']
+        },
         requiredFields: ['idComunicado'],
         uniqueFields: []
     },
@@ -118,7 +124,14 @@ const TABLE_DEFINITIONS = {
     siniestros: {
         sheetName: 'Siniestros',
         primaryField: 'id',
-        headers: ['id', 'siniestro', 'fenomeno', 'fondo', 'fi', 'idAseguradora'],
+        headers: {
+            id: ['id', 'ID'],
+            siniestro: ['siniestro', 'Siniestro', 'Nombre'],
+            fenomeno: ['fenomeno', 'Fenómeno', 'Fenomeno'],
+            fondo: ['fondo', 'Fondo'],
+            fi: ['fi', 'FI', 'Fecha Incidencia'],
+            idAseguradora: ['idAseguradora', 'Aseguradora', 'ID Aseguradora']
+        },
         requiredFields: ['siniestro'],
         uniqueFields: []
     },
