@@ -374,40 +374,49 @@ function deleteRow(nombreTabla, id) {
  */
 function readAllRows(nombreTabla) {
     const contexto = 'readAllRows';
-    console.log(`[${contexto}] Iniciando lectura de tabla: "${nombreTabla}"`);
+    try {
+        console.log(`[${contexto}] Iniciando lectura de tabla: "${nombreTabla}"`);
 
-    const def = TABLE_DEFINITIONS[nombreTabla];
-    if (!def) {
-        console.error(`[${contexto}] Tabla no definida: "${nombreTabla}"`);
-        return crearRespuestaError(`Tabla "${nombreTabla}" no está definida.`, {
+        const def = TABLE_DEFINITIONS[nombreTabla];
+        if (!def) {
+            console.error(`[${contexto}] Tabla no definida: "${nombreTabla}"`);
+            return crearRespuestaError(`Tabla "${nombreTabla}" no está definida.`, {
+                source: contexto,
+                details: { nombreTabla }
+            });
+        }
+
+        console.log(`[${contexto}] Definición encontrada. sheetName: "${def.sheetName}"`);
+
+        const { headers, rows } = obtenerDatosTabla(def.sheetName);
+
+        console.log(`[${contexto}] obtenerDatosTabla retornó:`, {
+            headersLength: headers?.length || 0,
+            rowsLength: rows?.length || 0,
+            headers: headers
+        });
+
+        if (!headers || headers.length === 0) {
+            console.warn(`[${contexto}] Headers vacíos para tabla "${nombreTabla}"`);
+            return { success: true, data: [], message: 'No se encontraron datos.' };
+        }
+
+        const datos = rows.map(fila => filaAObjeto(def, headers, fila));
+
+        console.log(`[${contexto}] Datos procesados para "${nombreTabla}":`, {
+            totalRegistros: datos.length,
+            primerRegistro: datos[0] || null
+        });
+
+        return { success: true, data: datos, message: 'Registros leídos con éxito.' };
+
+    } catch (error) {
+        console.error(`[${contexto}] Error fatal:`, error);
+        return crearRespuestaError(`Error leyendo tabla "${nombreTabla}": ${error.message}`, {
             source: contexto,
-            details: { nombreTabla }
+            error
         });
     }
-
-    console.log(`[${contexto}] Definición encontrada. sheetName: "${def.sheetName}"`);
-
-    const { headers, rows } = obtenerDatosTabla(def.sheetName);
-
-    console.log(`[${contexto}] obtenerDatosTabla retornó:`, {
-        headersLength: headers?.length || 0,
-        rowsLength: rows?.length || 0,
-        headers: headers
-    });
-
-    if (!headers || headers.length === 0) {
-        console.warn(`[${contexto}] Headers vacíos para tabla "${nombreTabla}"`);
-        return { success: true, data: [], message: 'No se encontraron datos.' };
-    }
-
-    const datos = rows.map(fila => filaAObjeto(def, headers, fila));
-
-    console.log(`[${contexto}] Datos procesados para "${nombreTabla}":`, {
-        totalRegistros: datos.length,
-        primerRegistro: datos[0] || null
-    });
-
-    return { success: true, data: datos, message: 'Registros leídos con éxito.' };
 }
 
 /**
@@ -696,4 +705,201 @@ function debugReadCuentas() {
 
     console.log('=== FIN DIAGNÓSTICO ===');
     return resultado;
+}
+
+/**
+ * Función dedicada para leer Datos Generales.
+ * Retorna JSON STRING para evitar errores de serialización de Apps Script (fechas, nulos, etc).
+ */
+function readDatosGenerales() {
+    const contexto = 'readDatosGenerales';
+    try {
+        console.log(`[${contexto}] Iniciando lectura directa...`);
+
+        // Definición explícita para garantizar que existe
+        const def = {
+            sheetName: 'DatosGenerales',
+            primaryField: 'id',
+            headers: [
+                'id', 'idComunicado', 'descripcion', 'fecha', 'idEstado',
+                'idDR', 'idEmpresa', 'fechaAsignacion', 'idSiniestro',
+                'idActualizacion', 'idAjustador'
+            ]
+        };
+
+        const { headers, rows } = obtenerDatosTabla(def.sheetName);
+
+        // Diagnóstico de hojas si no encuentra la tabla
+        if (!headers) {
+            const availableSheets = SpreadsheetApp.getActive().getSheets().map(s => s.getName());
+            console.warn(`[${contexto}] Hoja '${def.sheetName}' no hallada. Hojas disponibles: ${availableSheets.join(', ')}`);
+            return JSON.stringify({ success: true, data: [], message: 'Sheet not found', available: availableSheets });
+        }
+
+        if (headers.length === 0) {
+            console.warn(`[${contexto}] Headers vacíos`);
+            return JSON.stringify({ success: true, data: [], message: 'No records found.' });
+        }
+
+        const datos = rows.map(fila => filaAObjeto(def, headers, fila));
+
+        console.log(`[${contexto}] Registros leídos: ${datos.length}`);
+
+        // Retornamos un objeto estándar para que serverCall no falle.
+        // Pero la DATA va como string para protegerla.
+        return {
+            success: true,
+            data: JSON.stringify(datos),
+            message: 'OK'
+        };
+
+    } catch (e) {
+        console.error(`[${contexto}] Error:`, e);
+        return { success: false, message: e.message, error: String(e) };
+    }
+}
+
+/**
+ * Función dedicada para actualizar Datos Generales.
+ * Bypass de updateRow para evitar problemas de TABLE_DEFINITIONS.
+ */
+function updateDatosGenerales(id, nuevosDatos) {
+    const contexto = 'updateDatosGenerales';
+    try {
+        console.log(`[${contexto}] Actualizando ID: ${id}`, nuevosDatos);
+
+        const def = {
+            sheetName: 'DatosGenerales',
+            primaryField: 'id',
+            headers: [
+                'id', 'idComunicado', 'descripcion', 'fecha', 'idEstado',
+                'idDR', 'idEmpresa', 'fechaAsignacion', 'idSiniestro',
+                'idActualizacion', 'idAjustador'
+            ]
+        };
+
+        const { headers, sheet, rows } = obtenerDatosTabla(def.sheetName);
+
+        if (!sheet) return JSON.stringify({ success: false, message: 'Hoja no encontrada' });
+
+        const indiceId = headers.findIndex(h => normalizarTexto(h) === 'id');
+        const indiceFila = rows.findIndex(fila => String(fila[indiceId]) === String(id));
+
+        if (indiceFila === -1) {
+            return JSON.stringify({ success: false, message: 'Registro no encontrado' });
+        }
+
+        // Mapear nuevos datos a fila completa (actualizando solo lo enviado)
+        // OJO: rows[indiceFila] tiene los datos viejos. 
+        // newRow debe construirse combinando viejo + nuevo.
+        const currentRow = rows[indiceFila];
+        const newRow = headers.map((header, colIndex) => {
+            // "header" es el nombre de la columna.
+            // Si nuevosDatos tiene esa llave, usamos el nuevo valor.
+            let key = header;
+            // Ajuste manual de alias si fuera necesario, pero aquí usamos exact match con headers definidos arriba
+
+            if (nuevosDatos[key] !== undefined) {
+                return nuevosDatos[key];
+            }
+            return currentRow[colIndex];
+        });
+
+        // Escribir fila (indiceFila + 2, pues rows es dataRange sin header, y Sheets es 1-based)
+        // rows comienza en fila 2. 
+        // indice 0 es fila 2.
+        sheet.getRange(indiceFila + 2, 1, 1, newRow.length).setValues([newRow]);
+
+        return {
+            success: true,
+            data: JSON.stringify({ success: true, message: 'Actualizado correctamente' }),
+            message: 'OK'
+        };
+
+    } catch (e) {
+        console.error(`[${contexto}] Error:`, e);
+        return { success: false, message: e.message, error: String(e) };
+    }
+}
+
+/**
+ * Actualización por lotes para Datos Generales.
+ * Recibe un array de objetos con estructura: { id: <id>, data: { campo: valor, ... } }
+ */
+function updateBatchDatosGenerales(updates) {
+    const contexto = 'updateBatchDatosGenerales';
+    try {
+        console.log(`[${contexto}] Procesando ${updates.length} actualizaciones.`);
+
+        const def = {
+            sheetName: 'DatosGenerales',
+            primaryField: 'id',
+            headers: [
+                'id', 'idComunicado', 'descripcion', 'fecha', 'idEstado',
+                'idDR', 'idEmpresa', 'fechaAsignacion', 'idSiniestro',
+                'idActualizacion', 'idAjustador'
+            ]
+        };
+
+        const { headers, sheet, rows } = obtenerDatosTabla(def.sheetName);
+        if (!sheet) return { success: true, data: JSON.stringify({ success: false, message: 'Hoja no encontrada' }) };
+
+        const indiceId = headers.findIndex(h => normalizarTexto(h) === 'id');
+
+        // Crear un mapa de ID -> IndiceFila para búsqueda rápida O(1)
+        const mapIdFila = new Map();
+        rows.forEach((row, index) => {
+            const idVal = String(row[indiceId]);
+            mapIdFila.set(idVal, index);
+        });
+
+        let successCount = 0;
+        let errors = [];
+
+        updates.forEach(update => {
+            const id = String(update.id);
+            const nuevosDatos = update.data;
+
+            if (!mapIdFila.has(id)) {
+                errors.push(`ID ${id} no encontrado`);
+                return;
+            }
+
+            const rowIndex = mapIdFila.get(id); // Índice en array 'rows'
+            const currentRow = rows[rowIndex];
+
+            // Construir nueva fila combinando
+            const newRow = headers.map((header, colIndex) => {
+                let key = header;
+                if (nuevosDatos[key] !== undefined) {
+                    return nuevosDatos[key];
+                }
+                return currentRow[colIndex];
+            });
+
+            // Actualizar en hoja (rowIndex + 2)
+            try {
+                sheet.getRange(rowIndex + 2, 1, 1, newRow.length).setValues([newRow]);
+                // Actualizar también en memoria 'rows'
+                rows[rowIndex] = newRow;
+                successCount++;
+            } catch (err) {
+                errors.push(`Error actualizando ID ${id}: ${err.message}`);
+            }
+        });
+
+        return {
+            success: true,
+            data: JSON.stringify({
+                success: true,
+                message: `Actualizados ${successCount} de ${updates.length}`,
+                errors: errors
+            }),
+            message: 'Batch Processed'
+        };
+
+    } catch (e) {
+        console.error(`[${contexto}] Error general:`, e);
+        return { success: false, message: e.message, error: String(e) };
+    }
 }

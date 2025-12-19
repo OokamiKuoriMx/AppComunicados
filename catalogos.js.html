@@ -20,7 +20,13 @@
             aseguradoras: { title: 'Aseguradoras', headers: ['ID', 'Aseguradora'], keys: ['id', 'aseguradora'] },
             ajustadores: { title: 'Ajustadores', headers: ['ID', 'Nombre', 'Usuario'], keys: ['id', 'nombreAjustador', 'usuario'] },
             distritosRiego: { title: 'Distritos de Riego', headers: ['ID', 'Distrito'], keys: ['id', 'distritoRiego'] },
-            siniestros: { title: 'Siniestros', headers: ['ID', 'Siniestro', 'Fenómeno', 'Fondo', 'ID Aseguradora'], keys: ['id', 'siniestro', 'fenomeno', 'fondo', 'idAseguradora'] }
+            siniestros: { title: 'Siniestros', headers: ['ID', 'Siniestro', 'Fenómeno', 'Fondo', 'ID Aseguradora'], keys: ['id', 'siniestro', 'fenomeno', 'fondo', 'idAseguradora'] },
+            datosGenerales: {
+                title: 'Comunicados (Maestro)',
+                // Orden Solicitado: Referencia, Comunicado, Ajustador, ...
+                headers: ['Referencia', 'Comunicado', 'Ajustador', 'Siniestro', 'Aseguradora', 'Fecha', 'Descripción', 'Distrito', 'Estado'],
+                keys: ['virtual_referencia', 'idComunicado', 'idAjustador', 'idSiniestro', 'virtual_aseguradora', 'fecha', 'descripcion', 'idDR', 'idEstado']
+            }
         };
 
         async function init(container) {
@@ -106,22 +112,113 @@
                 // Limpiar tabla antes de cargar
                 if (dom.tbody) dom.tbody.innerHTML = '';
 
-                // Actualizar headers
+                // Actualizar headers y Clases de Tabla
                 const config = CATALOG_CONFIG[state.activeCatalog];
+                const isSheetMode = state.activeCatalog === 'datosGenerales';
+
                 if (dom.thead) {
-                    dom.thead.innerHTML = config.headers.map(h => `<th class="fw-semibold px-4 py-3">${h}</th>`).join('') + `<th class="fw-semibold px-4 py-3 text-end">Acciones</th>`;
+                    // Si es modo Excel, headers sin padding extra y sin columna acciones
+                    const cellClass = isSheetMode ? '' : 'px-4 py-3';
+                    let headerHtml = config.headers.map(h => `<th class="fw-semibold ${cellClass}">${h}</th>`).join('');
+                    if (!isSheetMode) {
+                        headerHtml += `<th class="fw-semibold px-4 py-3 text-end">Acciones</th>`;
+                    }
+                    dom.thead.innerHTML = headerHtml;
+                }
+
+                // Toggle clases contenedores
+                if (dom.table) {
+                    const container = dom.table.parentElement;
+                    if (isSheetMode) {
+                        dom.table.classList.add('sheet-table');
+                        dom.table.classList.remove('table', 'table-hover', 'mb-0'); // Quitar estilos bootstrap standard
+                        if (container) {
+                            container.classList.add('sheet-container');
+                            container.classList.remove('table-responsive', 'shadow-sm', 'rounded-3');
+                        }
+                        // Mostrar barra batch si hay cambios (o resetear)
+                        // TODO: Resetear cambios al cargar
+                        state.pendingChanges = {};
+                        _updateBatchUI();
+                    } else {
+                        dom.table.classList.remove('sheet-table');
+                        dom.table.classList.add('table', 'table-hover', 'mb-0');
+                        if (container) {
+                            container.classList.remove('sheet-container');
+                            container.classList.add('table-responsive', 'shadow-sm', 'rounded-3');
+                        }
+                        document.getElementById('batch-save-bar').style.display = 'none';
+                    }
                 }
 
                 // Fetch Data
-                const response = await serverCall('readAllRows', state.activeCatalog);
-                state.data = Array.isArray(response) ? response : [];
+                // Fetch Data
+                if (state.activeCatalog === 'datosGenerales') {
+                    // Úsamos la función dedicada para evitar problemas de configuración
+                    const [coms, cuentas, sin, ajust, dr, est, emp, aseg, mainDataResp] = await Promise.all([
+                        serverCall('readAllRows', 'comunicados'),
+                        serverCall('readAllRows', 'cuentas'),
+                        serverCall('readAllRows', 'siniestros'),
+                        serverCall('readAllRows', 'ajustadores'),
+                        serverCall('readAllRows', 'distritosRiego'),
+                        serverCall('readAllRows', 'estados'),
+                        serverCall('readAllRows', 'empresas'),
+                        serverCall('readAllRows', 'aseguradoras'),
+                        serverCall('readDatosGenerales')
+                    ]);
 
-                // Cargar dependencias (ej. aseguraradoras para siniestros)
-                if (state.activeCatalog === 'siniestros') {
-                    const asegs = await serverCall('readAllRows', 'aseguradoras');
-                    state.dependencyData = { aseguradoras: Array.isArray(asegs) ? asegs : [] };
+                    // Parsear el string JSON retornado por readDatosGenerales
+                    try {
+                        let parsedData = [];
+
+                        // Normalizar respuesta (objeto {success, data} o array o string)
+                        let raw = mainDataResp;
+                        if (typeof raw === 'string') {
+                            try { raw = JSON.parse(raw); } catch (e) { }
+                        }
+
+                        // Si es encapsulado {success:true, data: "..."}
+                        if (raw && raw.success && raw.data && typeof raw.data === 'string') {
+                            try { parsedData = JSON.parse(raw.data); } catch (e) { }
+                        }
+                        // Si es encapsulado {success:true, data: [...]}
+                        else if (raw && raw.success && Array.isArray(raw.data)) {
+                            parsedData = raw.data;
+                        }
+                        // Si es array directo
+                        else if (Array.isArray(raw)) {
+                            parsedData = raw;
+                        }
+
+                        state.data = parsedData || [];
+                    } catch (e) {
+                        console.error('Error parseando DatosGenerales:', e);
+                        state.data = [];
+                    }
+
+                    state.dependencyData = {
+                        comunicados: Array.isArray(coms) ? coms : [],
+                        cuentas: Array.isArray(cuentas) ? cuentas : [],
+                        siniestros: Array.isArray(sin) ? sin : [],
+                        ajustadores: Array.isArray(ajust) ? ajust : [],
+                        distritosRiego: Array.isArray(dr) ? dr : [],
+                        estados: Array.isArray(est) ? est : [],
+                        empresas: Array.isArray(emp) ? emp : [],
+                        aseguradoras: Array.isArray(aseg) ? aseg : []
+                    };
+
                 } else {
-                    state.dependencyData = {};
+                    // Carga estándar
+                    const response = await serverCall('readAllRows', state.activeCatalog);
+                    state.data = Array.isArray(response) ? response : [];
+
+                    // Cargar dependencias específicas
+                    if (state.activeCatalog === 'siniestros') {
+                        const asegs = await serverCall('readAllRows', 'aseguradoras');
+                        state.dependencyData = { aseguradoras: Array.isArray(asegs) ? asegs : [] };
+                    } else {
+                        state.dependencyData = {};
+                    }
                 }
 
                 _renderTable();
@@ -138,6 +235,7 @@
             if (!dom.tbody) return;
             const config = CATALOG_CONFIG[state.activeCatalog];
             const keys = config.keys;
+            const isSheetMode = state.activeCatalog === 'datosGenerales';
 
             if (state.data.length === 0) {
                 dom.tbody.innerHTML = `<tr><td colspan="100" class="text-center text-muted py-5"><i class="bi bi-inbox fs-1 d-block mb-2"></i>Sin registros</td></tr>`;
@@ -145,7 +243,140 @@
                 return;
             }
 
+            // --- HEADERS & FILTERS ---
+            if (dom.thead) {
+                const cellClass = isSheetMode ? '' : 'px-4 py-3';
+                let headerHtml = config.headers.map(h => `<th class="fw-semibold ${cellClass}">${h}</th>`).join('');
+                if (!isSheetMode) headerHtml += `<th class="fw-semibold px-4 py-3 text-end">Acciones</th>`;
+
+                let filterHtml = '';
+                if (isSheetMode) {
+                    const filters = keys.map((k, idx) => `
+                        <th><input type="text" class="sheet-filter-input" placeholder="..." onkeyup="Catalogos.filterTable(this, ${idx})"></th>
+                    `).join('');
+                    filterHtml = `<tr class="filter-row">${filters}</tr>`;
+                }
+
+                dom.thead.innerHTML = `<tr>${headerHtml}</tr>${filterHtml}`;
+            }
+
+            // --- BODY GENERATION ---
             const html = state.data.map(item => {
+                const itemId = item.id || item.ID;
+
+                // --- MODO SHEET (EXCEL-LIKE) ---
+                if (isSheetMode) {
+                    const dd = state.dependencyData || {};
+                    const cells = keys.map(k => {
+                        let val = item[k] || '';
+
+                        // 1. Referencia Virtual
+                        if (k === 'virtual_referencia') {
+                            let display = '-';
+                            const idCom = item.idComunicado;
+                            if (idCom && dd.comunicados && dd.cuentas) {
+                                const com = dd.comunicados.find(c => String(c.id) === String(idCom));
+                                if (com) {
+                                    const cta = dd.cuentas.find(c => String(c.id) === String(com.idReferencia));
+                                    if (cta) display = cta.referencia;
+                                }
+                            }
+                            return `<td class="sheet-readonly text-center fw-bold text-primary small">${display}</td>`;
+                        }
+
+                        // 2. Comunicado 
+                        if (k === 'idComunicado') {
+                            let display = val;
+                            let fullText = val;
+                            if (dd.comunicados) {
+                                const com = dd.comunicados.find(c => String(c.id) === String(val));
+                                if (com) {
+                                    display = com.comunicado;
+                                    fullText = com.comunicado;
+                                }
+                            }
+                            return `<td class="sheet-readonly" title="${fullText}">${display}</td>`;
+                        }
+
+                        // 3. Ajustador (Select)
+                        if (k === 'idAjustador') {
+                            // Lógica Default: si está vacío, usar el de la referencia
+                            let defaultSelected = val;
+                            if (!val && dd.comunicados && dd.cuentas) {
+                                const com = dd.comunicados.find(c => String(c.id) === String(item.idComunicado));
+                                if (com) {
+                                    const cta = dd.cuentas.find(c => String(c.id) === String(com.idReferencia));
+                                    if (cta && cta.idAjustador) defaultSelected = cta.idAjustador;
+                                }
+                            }
+
+                            let optionsHtml = '';
+                            if (dd.ajustadores) {
+                                optionsHtml = `<option value="">-</option>` + dd.ajustadores.map(x => {
+                                    const isSelected = String(x.id) === String(defaultSelected);
+                                    return `<option value="${x.id}" ${isSelected ? 'selected' : ''}>${x.nombreAjustador || x.nombre}</option>`;
+                                }).join('');
+                            }
+                            return `<td><select class="sheet-select" data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)">${optionsHtml}</select></td>`;
+                        }
+
+                        // 4. Siniestro (Select)
+                        if (k === 'idSiniestro') {
+                            let optionsHtml = '';
+                            if (dd.siniestros) {
+                                optionsHtml = `<option value="">-</option>` + dd.siniestros.map(x => {
+                                    const isSelected = String(x.id) === String(val);
+                                    return `<option value="${x.id}" ${isSelected ? 'selected' : ''}>${x.siniestro || x.nombre}</option>`;
+                                }).join('');
+                            }
+                            return `<td><select class="sheet-select" data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)">${optionsHtml}</select></td>`;
+                        }
+
+                        // 5. Aseguradora (Virtual)
+                        if (k === 'virtual_aseguradora') {
+                            let display = '-';
+                            const idSin = item.idSiniestro;
+                            if (idSin && dd.siniestros && dd.aseguradoras) {
+                                const s = dd.siniestros.find(x => String(x.id) === String(idSin));
+                                if (s && s.idAseguradora) {
+                                    const a = dd.aseguradoras.find(x => String(x.id) === String(s.idAseguradora));
+                                    if (a) display = a.aseguradora || a.nombre;
+                                }
+                            }
+                            return `<td id="cell-aseg-${itemId}" class="sheet-readonly small text-muted">${display}</td>`;
+                        }
+
+                        // 6. Fecha
+                        if (k === 'fecha') {
+                            let safeDate = val;
+                            if (val && val.includes('T')) safeDate = val.split('T')[0];
+                            return `<td><input type="date" class="sheet-input" value="${safeDate}" data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)"></td>`;
+                        }
+
+                        // 7. Descripción
+                        if (k === 'descripcion') {
+                            return `<td><input type="text" class="sheet-input" value="${val}" placeholder="..." data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)"></td>`;
+                        }
+
+                        // 8. Distritos / Estados (Selects Genéricos)
+                        if (k === 'idDR' && dd.distritosRiego) {
+                            const opts = `<option value="">-</option>` + dd.distritosRiego.map(x => `<option value="${x.id}" ${String(x.id) === String(val) ? 'selected' : ''}>${x.distritoRiego || x.nombre}</option>`).join('');
+                            return `<td><select class="sheet-select" data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)">${opts}</select></td>`;
+                        }
+                        if (k === 'idEstado' && dd.estados) {
+                            const opts = `<option value="">-</option>` + dd.estados.map(x => `<option value="${x.id}" ${String(x.id) === String(val) ? 'selected' : ''}>${x.estado || x.nombre}</option>`).join('');
+                            return `<td><select class="sheet-select" data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)">${opts}</select></td>`;
+                        }
+
+                        // Fallback (Texto simple)
+                        return `<td><input type="text" class="sheet-input" value="${val}" data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)"></td>`;
+
+                    }).join('');
+
+                    return `<tr class="sheet-row">${cells}</tr>`;
+                }
+
+                // --- MODO STANDARD ---
                 const cells = keys.map(k => {
                     let val = item[k] || '';
                     if (k === 'id') val = `<span class="font-monospace text-muted small">${val}</span>`;
@@ -154,23 +385,53 @@
                         const aseg = state.dependencyData.aseguradoras.find(a => String(a.id) === String(val));
                         if (aseg) val = `${aseg.aseguradora} <small class="text-muted">(${val})</small>`;
                     }
-
                     return `<td class="px-4 py-3">${val}</td>`;
                 }).join('');
 
                 const actions = `
                     <td class="text-end px-4 py-3">
-                        <button class="btn btn-sm btn-outline-primary" onclick="Catalogos.editar(${item.id || item.ID})" title="Editar">
+                        <button class="btn btn-sm btn-outline-primary" onclick="Catalogos.editar(${itemId})" title="Editar">
                             <i class="bi bi-pencil"></i>
                         </button>
                     </td>
                 `;
-
                 return `<tr>${cells}${actions}</tr>`;
             }).join('');
 
             dom.tbody.innerHTML = html;
             if (dom.count) dom.count.textContent = `${state.data.length} registros`;
+        }
+
+        // --- FILTRADO POR COLUMNA ---
+        function _filterTable(input, colIndex) {
+            const filter = input.value.toUpperCase();
+            const table = dom.table;
+            const tr = table.getElementsByTagName("tr");
+
+            // Empezar en 2 si hay fila de filtros, sino 1
+            const startRow = state.activeCatalog === 'datosGenerales' ? 2 : 1;
+
+            for (let i = startRow; i < tr.length; i++) {
+                const td = tr[i].getElementsByTagName("td")[colIndex];
+                if (td) {
+                    // Buscar en input, select o texto directo
+                    let txtValue = td.textContent || td.innerText;
+                    const inputEl = td.querySelector('input, select');
+                    if (inputEl) {
+                        if (inputEl.tagName === 'SELECT') {
+                            txtValue = inputEl.options[inputEl.selectedIndex].text;
+                        } else {
+                            txtValue = inputEl.value;
+                        }
+                    }
+
+                    if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                        tr[i].style.display = "";
+                    } else {
+                        tr[i].style.display = "none";
+                    }
+                }
+            }
         }
 
         function _setLoading(isLoading) {
@@ -212,6 +473,41 @@
                             ${options}
                         </select>
                     `;
+                } else if (state.activeCatalog === 'datosGenerales' && state.dependencyData) {
+                    const dd = state.dependencyData;
+
+                    if (k === 'idComunicado') {
+                        // Mostrar como Read-Only con nombre resuelto
+                        let displayVal = val;
+                        if (dd.comunicados && dd.cuentas) {
+                            const com = dd.comunicados.find(c => String(c.id) === String(val));
+                            if (com) {
+                                const cta = dd.cuentas.find(c => String(c.id) === String(com.idReferencia));
+                                const ref = cta ? cta.referencia : 'S/R';
+                                displayVal = `${ref} | ${com.comunicado}`;
+                            }
+                        }
+                        inputHtml = `
+                            <input type="text" class="form-control bg-light" value="${displayVal}" readonly>
+                            <input type="hidden" name="${k}" value="${val}">
+                        `;
+                    } else if (k === 'idSiniestro') {
+                        const options = (dd.siniestros || []).map(x => `<option value="${x.id}" ${String(x.id) === String(val) ? 'selected' : ''}>${x.siniestro || x.nombre}</option>`).join('');
+                        inputHtml = `<select class="form-select" name="${k}" required><option value="">-- Siniestro --</option>${options}</select>`;
+                    } else if (k === 'idAjustador') {
+                        const options = (dd.ajustadores || []).map(x => `<option value="${x.id}" ${String(x.id) === String(val) ? 'selected' : ''}>${x.nombreAjustador || x.nombre}</option>`).join('');
+                        inputHtml = `<select class="form-select" name="${k}" required><option value="">-- Ajustador --</option>${options}</select>`;
+                    } else if (k === 'idDR') {
+                        const options = (dd.distritosRiego || []).map(x => `<option value="${x.id}" ${String(x.id) === String(val) ? 'selected' : ''}>${x.distritoRiego || x.nombre}</option>`).join('');
+                        inputHtml = `<select class="form-select" name="${k}" required><option value="">-- Distrito --</option>${options}</select>`;
+                    } else if (k === 'idEstado') {
+                        const options = (dd.estados || []).map(x => `<option value="${x.id}" ${String(x.id) === String(val) ? 'selected' : ''}>${x.estado || x.nombre}</option>`).join('');
+                        inputHtml = `<select class="form-select" name="${k}" required><option value="">-- Estado --</option>${options}</select>`;
+                    } else {
+                        // Fallback Text
+                        inputHtml = `<input type="text" class="form-control" name="${k}" value="${val}" required>`;
+                    }
+
                 } else {
                     inputHtml = `<input type="text" class="form-control" name="${k}" value="${val}" required>`;
                 }
@@ -248,7 +544,19 @@
                 });
 
                 if (id) {
-                    await serverCall('updateRow', activeKey, id, payload);
+                    if (activeKey === 'datosGenerales') {
+                        // Uso de función dedicada para update
+                        const responseStr = await serverCall('updateDatosGenerales', id, payload);
+                        try {
+                            const parsed = JSON.parse(responseStr);
+                            if (!parsed.success) throw new Error(parsed.message || 'Error al actualizar');
+                        } catch (e) {
+                            // Si no es JSON valido o success false
+                            if (e.message !== 'Error al actualizar') console.warn('Respuesta updateDatosGenerales no estándar:', responseStr);
+                        }
+                    } else {
+                        await serverCall('updateRow', activeKey, id, payload);
+                    }
                 } else {
                     await serverCall('createRow', activeKey, payload);
                 }
@@ -267,6 +575,128 @@
             }
         }
 
+        function _bindEvents() {
+            if (dom.selector) {
+                dom.selector.addEventListener('change', (e) => {
+                    state.activeCatalog = e.target.value;
+                    _loadData();
+                });
+            }
+
+            if (dom.btnAdd) {
+                dom.btnAdd.addEventListener('click', () => {
+                    _openModal(null);
+                });
+            }
+
+            if (dom.btnSave) {
+                dom.btnSave.addEventListener('click', _saveData);
+            }
+
+            // Eventos Batch
+            const btnBatchSave = document.getElementById('btn-batch-save');
+            const btnBatchCancel = document.getElementById('btn-batch-cancel');
+
+            if (btnBatchSave) btnBatchSave.addEventListener('click', _saveBatch);
+            if (btnBatchCancel) btnBatchCancel.addEventListener('click', _cancelBatch);
+        }
+
+        // --- LOGICA BATCH ---
+
+        function _handleBatchChange(el) {
+            const id = el.dataset.id;
+            const field = el.dataset.field;
+            if (!id || !field) return;
+
+            const val = el.value;
+
+            if (!state.pendingChanges) state.pendingChanges = {};
+            if (!state.pendingChanges[id]) state.pendingChanges[id] = {};
+
+            state.pendingChanges[id][field] = val;
+
+            el.classList.add('cell-modified');
+
+            // Actualización Dinámica
+            if (field === 'idSiniestro') {
+                const dd = state.dependencyData;
+                const cellAseg = document.getElementById('cell-aseg-' + id);
+                if (cellAseg && dd.siniestros && dd.aseguradoras) {
+                    const s = dd.siniestros.find(x => String(x.id) === String(val));
+                    let newAseg = '-';
+                    if (s && s.idAseguradora) {
+                        const a = dd.aseguradoras.find(x => String(x.id) === String(s.idAseguradora));
+                        if (a) newAseg = a.aseguradora || a.nombre;
+                    }
+                    cellAseg.textContent = newAseg;
+                }
+            }
+            _updateBatchUI();
+        }
+
+        function _updateBatchUI() {
+            const bar = document.getElementById('batch-save-bar');
+            const counter = document.getElementById('batch-changes-count');
+            if (!bar || !counter) return;
+
+            const ids = Object.keys(state.pendingChanges || {});
+            const changesCount = ids.length;
+
+            if (changesCount > 0) {
+                bar.style.display = 'flex';
+                counter.textContent = `${changesCount} registro(s) modificado(s)`;
+            } else {
+                bar.style.display = 'none';
+            }
+        }
+
+        async function _saveBatch() {
+            const ids = Object.keys(state.pendingChanges || {});
+            if (ids.length === 0) return;
+
+            const btn = document.getElementById('btn-batch-save');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Guardando...';
+
+            try {
+                // Convertir a array para el backend
+                const updates = ids.map(id => ({
+                    id: id,
+                    data: state.pendingChanges[id]
+                }));
+
+                console.log('Enviando batch:', updates);
+
+                const responseStr = await serverCall('updateBatchDatosGenerales', updates);
+                const parsed = JSON.parse(responseStr);
+
+                if (parsed.success) {
+                    _showAlert('Éxito', parsed.message || 'Cambios guardados');
+                    state.pendingChanges = {}; // Reset
+                    _updateBatchUI();
+                    await _loadData(); // Recargar para limpiar estados de UI
+                } else {
+                    throw new Error(parsed.message || 'Error en batch');
+                }
+
+            } catch (e) {
+                console.error(e);
+                alert('Error guardando cambios: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
+        function _cancelBatch() {
+            if (confirm('¿Descartar todos los cambios no guardados?')) {
+                state.pendingChanges = {};
+                _updateBatchUI();
+                _loadData(); // Restaurar valores originales
+            }
+        }
+
         function _showAlert(title, msg) {
             if (globalThis.Swal) Swal.fire({ icon: 'success', title, text: msg, timer: 1500, showConfirmButton: false });
             else alert(msg);
@@ -276,7 +706,9 @@
             init: init,
             mount: init,
             render: () => '<div id="catalogos-container"></div>',
-            editar: _openModal
+            editar: _openModal,
+            handleBatchChange: _handleBatchChange,
+            filterTable: _filterTable
         };
     })();
 </script>
