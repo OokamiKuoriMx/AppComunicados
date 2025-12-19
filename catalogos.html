@@ -1,0 +1,73 @@
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="h3 mb-2 text-gray-800">
+                <i class="bi bi-database text-primary me-2"></i>Catálogos
+            </h2>
+            <p class="text-muted mb-0">Gestión de tablas auxiliares del sistema.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <select id="cat-selector" class="form-select w-auto fw-bold text-primary border-primary">
+                <option value="aseguradoras">Aseguradoras</option>
+                <option value="ajustadores">Ajustadores</option>
+                <option value="distritosRiego">Distritos de Riego</option>
+                <option value="siniestros">Siniestros</option>
+            </select>
+            <button id="btn-add" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i> Nuevo Registro
+            </button>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="cat-table">
+                    <thead class="bg-light text-secondary">
+                        <tr id="cat-thead-row">
+                            <!-- Dynamic Headers -->
+                        </tr>
+                    </thead>
+                    <tbody id="cat-tbody">
+                        <!-- Dynamic Data -->
+                    </tbody>
+                </table>
+            </div>
+            <div id="loader-overlay"
+                class="d-none position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center bg-white bg-opacity-75"
+                style="z-index: 5;">
+                <div class="spinner-border text-primary" role="status"></div>
+            </div>
+        </div>
+        <div class="card-footer bg-white py-3 border-top-0 d-flex justify-content-between text-muted small">
+            <span id="cat-count">0 registros</span>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Genérico Edición -->
+<div class="modal fade" id="modal-catalogo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-primary" id="modal-title">Editar Registro</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-catalogo">
+                    <input type="hidden" id="field-id">
+                    <div id="dynamic-fields" class="row g-3">
+                        <!-- Campos dinámicos -->
+                    </div>
+                </form>
+                <div id="modal-error" class="alert alert-danger mt-3 d-none small"></div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btn-save">
+                    <i class="bi bi-save me-1"></i> Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

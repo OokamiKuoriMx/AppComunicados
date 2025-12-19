@@ -1235,7 +1235,7 @@ function procesarAltaExpress(payload) {
         const nombreAseguradora = String(payload.siniestro?.nombreAseguradora || '').trim().toUpperCase();
 
         if (!idAseguradora && nombreAseguradora) {
-            const asegResult = ensureCatalogRecord('aseguradoras', { descripción: nombreAseguradora });
+            const asegResult = ensureCatalogRecord('aseguradoras', { aseguradora: nombreAseguradora });
             if (!asegResult.success) return propagarRespuestaError(contexto, asegResult);
             idAseguradora = asegResult.data.id;
         }

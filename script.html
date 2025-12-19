@@ -181,6 +181,11 @@
             template: 'comunicado_detalle',
             global: 'ComunicadoDetalle'
         },
+        '#/catalogos': {
+            script: 'catalogos.js',
+            template: 'catalogos',
+            global: 'Catalogos'
+        }
 
     };
 
@@ -309,6 +314,8 @@
                     devLog(`Script cargado para ${hash} `);
                     injectComponentScript(code);
                     loadedScripts.add(config.script);
+                    // Give the browser a moment to execute the script
+                    await new Promise(r => setTimeout(r, 50));
                 } catch (err) {
                     console.error(`Fallo al cargar script para ${hash} `, err);
                     return NotFound;

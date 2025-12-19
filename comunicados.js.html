@@ -935,10 +935,28 @@
 
         /**
          * Abre el detalle del comunicado (Redirección unificada)
-         * Se mantiene el nombre abrirModal por compatibilidad con onclick HTML
+         /**
+         * Abre el detalle del comunicado en MODAL (Vista Rápida)
          */
         function abrirModal(idComunicado) {
-            verDetalle(idComunicado);
+            if (!idComunicado) return;
+            const com = state.comunicados.find(c => String(c.id) === String(idComunicado));
+            if (!com) {
+                console.warn('Comunicado no encontrado en memoria:', idComunicado);
+                return;
+            }
+
+            comunicadoActual = com;
+            _poblarFormulario(com);
+
+            // Asegurar modo lectura al abrir
+            _toggleEdicion(false);
+
+            if (modalInstance) {
+                modalInstance.show();
+            } else {
+                console.error('Instancia del modal no inicializada');
+            }
         }
 
         /**
@@ -990,26 +1008,44 @@
         }
 
         /**
-         * Navega a la vista de detalle del comunicado
+         * Navega a la vista de detalle del comunicado (Gestión Completa)
          */
         async function verDetalle(idComunicado) {
             if (!idComunicado) return;
-
             // Guardar ID en sesión para que la nueva vista lo recupere
             sessionStorage.setItem('currentComunicadoId', String(idComunicado));
-
             // Navegar a la nueva ruta
             location.hash = '#/comunicado-detalle';
         }
 
         /**
          * Pobla el formulario del modal con los datos del comunicado
-         * (Mantenido por compatibilidad si se necesitara, aunque ahora navegamos)
          */
-        function _poblarFormulario(detalle) {
-            // Esta función ya no se usa activamente para el modal principal,
-            // pero se deja como referencia o por si se revierte la navegación.
-            console.log('Poblando formulario (legacy):', detalle);
+        function _poblarFormulario(com) {
+            // Campos básicos
+            const setVal = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.value = val || '';
+            };
+
+            setVal('detalle-comunicado', com.comunicado);
+            setVal('detalle-fecha', _formatearFechaInput(com.fecha));
+            setVal('detalle-descripcion', com.descripcion);
+
+            // Estado (Select)
+            setVal('detalle-estado', com.idEstado);
+
+            // Combobox Híbridos
+            setVal('detalle-distrito', com.distrito);
+            setVal('detalle-siniestro', com.siniestro);
+
+            // Siniestro Detalles (Fenomeno, FI, Fondo)
+            setVal('detalle-fenomeno', com.fenomeno);
+            setVal('detalle-fi', com.fi);
+            setVal('detalle-fondo', com.fondo);
+
+            // Forzar actualización visual de readonly/bg-color para siniestro
+            _actualizarDetallesSiniestro();
         }
 
         /**
@@ -1038,10 +1074,23 @@
 
                 await serverCall('updateComunicado', comunicadoActual.id, updates);
 
-                modalInstance.hide();
+                if (modalInstance) modalInstance.hide();
                 await _loadComunicados();
 
-                alert('Comunicado actualizado correctamente');
+                // Usar SweetAlert2 si está disponible (globalThis.Swal)
+                const swal = globalThis.Swal;
+                if (swal) {
+                    swal.fire({
+                        icon: 'success',
+                        title: 'Actualizado',
+                        text: 'Comunicado actualizado correctamente',
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
+                } else {
+                    alert('Comunicado actualizado correctamente');
+                }
+
             } catch (error) {
                 console.error('Error guardando cambios:', error);
                 dom.modalError.textContent = error.message;
@@ -1080,7 +1129,8 @@
             init,
             mount,
             abrirModal,
-            verDetalle
+            verDetalle,
+            recargar: _loadComunicados
         };
 
     })();

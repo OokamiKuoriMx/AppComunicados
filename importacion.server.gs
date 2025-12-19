@@ -492,7 +492,7 @@ function _prepareSiniestrosBatch(validos, cache) {
 
         if (!existMap.has(key) && !seen.has(key)) {
             // Buscar ID Aseguradora (ya deben estar cacheadas tras paso 1)
-            const idAseg = _resolveIdFromCache(cache.aseguradoras, h.aseguradora, 'descripción');
+            const idAseg = _resolveIdFromCache(cache.aseguradoras, h.aseguradora, ['aseguradora', 'nombre']);
 
             const newSin = {
                 siniestro: h.refSiniestro,
@@ -629,9 +629,17 @@ function convertirExcelACsv(base64Data) {
         if (!data || data.length === 0) throw new Error('Excel vacío');
 
         let csvContent = '';
+        const timeZone = Session.getScriptTimeZone();
         data.forEach(row => {
             const csvRow = row.map(cell => {
-                let s = String(cell || '');
+                let s = '';
+                if (cell instanceof Date) {
+                    // Formatear fechas a ISO simple para evitar "Fri May 12..."
+                    s = Utilities.formatDate(cell, timeZone, 'yyyy-MM-dd');
+                } else {
+                    s = String(cell || '');
+                }
+
                 if (s.includes(',') || s.includes('"') || s.includes('\n')) s = '"' + s.replace(/"/g, '""') + '"';
                 return s;
             }).join(',');
@@ -785,23 +793,32 @@ function validarLote(loteAgrupado, cache) {
             // Existe en DB estricto?
             const existeComunicado = comunicadosExistentes.some(c => String(c.idReferencia) === String(idCuenta) && String(c.comunicado) === String(doc.header.comunicadoId));
 
-            // Existe en Lote estricto?
-            const origenComunicadoEnLote = origenCuentaEnLote && String(origenCuentaEnLote.header.comunicadoId) === String(doc.header.comunicadoId);
+            // Existe en Lote estricto? Buscamos ESPECIFICAMENTE el comunicado ID, no solo la cuenta.
+            const origenComunicadoEnLote = loteAgrupado.find(d =>
+                d.header.refCta === doc.header.refCta &&
+                d.header.tipoRegistro === 'ORIGEN' &&
+                d.header.comunicadoId === doc.header.comunicadoId &&
+                d.validacion.esValido
+            );
 
             if (!existeComunicado && !origenComunicadoEnLote) {
-                // Caso especifico: Tenemos la cuenta (via lote) pero el ID no cuadra (L30 vs L30A)
+                // Caso especifico: Tenemos la cuenta (via lote o DB) pero el ID Comunicado no existe.
                 if (origenCuentaEnLote) {
+                    // Si hay otros origenes para esta cuenta, avisar cual se encontró para dar contexto, 
+                    // pero el error real es que FALTA el origen especifico.
                     doc.validacion.esValido = false;
                     doc.validacion.status = 'OMITIDO';
-                    doc.validacion.motivo = `El ID Comunicado '${doc.header.comunicadoId}' no coincide con el Origen '${origenCuentaEnLote.header.comunicadoId}'. Deben ser iguales.`;
+                    doc.validacion.motivo = `No se encontró el Origen '${doc.header.comunicadoId}' en el lote (Se encontró otro: '${origenCuentaEnLote.header.comunicadoId}').`;
                     return;
                 }
 
                 doc.validacion.esValido = false;
                 doc.validacion.status = 'OMITIDO';
-                doc.validacion.motivo = 'No existe Comunicado Origen';
+                doc.validacion.motivo = 'No existe Comunicado Origen ni en DB ni en Lote';
                 return;
             }
+
+
 
             if (origenComunicadoEnLote) {
                 doc.validacion.motivo = 'Validado por dependencia en lote (Nuevo Origen)';

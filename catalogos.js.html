@@ -1,0 +1,282 @@
+<script>
+    /**
+     * Componente Catalogos
+     * Gestión genérica de catálogos auxiliares (Aseguradoras, Ajustadores, etc.)
+     */
+    console.log('📦 Catalogos.js cargado');
+    window.Catalogos = (() => {
+        'use strict';
+
+        let state = {
+            activeCatalog: 'aseguradoras',
+            data: [],
+            loading: false
+        };
+
+        let dom = {};
+
+        // Definición de Catálogos soportados y sus campos visuales
+        const CATALOG_CONFIG = {
+            aseguradoras: { title: 'Aseguradoras', headers: ['ID', 'Aseguradora'], keys: ['id', 'aseguradora'] },
+            ajustadores: { title: 'Ajustadores', headers: ['ID', 'Nombre', 'Usuario'], keys: ['id', 'nombreAjustador', 'usuario'] },
+            distritosRiego: { title: 'Distritos de Riego', headers: ['ID', 'Distrito'], keys: ['id', 'distritoRiego'] },
+            siniestros: { title: 'Siniestros', headers: ['ID', 'Siniestro', 'Fenómeno', 'Fondo', 'ID Aseguradora'], keys: ['id', 'siniestro', 'fenomeno', 'fondo', 'idAseguradora'] }
+        };
+
+        async function init(container) {
+            console.log('Iniciando Módulo de Catálogos...');
+            // Inyectar plantilla
+            await _mount(container);
+
+            _cacheDom();
+            _bindEvents();
+            _loadData();
+        }
+
+        async function _mount(container) {
+            container.innerHTML = '';
+            // Intentar obtener de caché global
+            let content = globalThis.TEMPLATES?.['catalogos'];
+
+            if (!content) {
+                // Si no está en caché (ej. navegación directa), intentar cargar
+                console.log('Plantilla catalogos no en caché, solicitando...');
+                try {
+                    content = await fetchTemplates('catalogos');
+                    // fetchTemplates ya actualiza globalThis.TEMPLATES si tiene éxito
+                } catch (e) {
+                    console.error('Error cargando plantilla catalogos:', e);
+                }
+            }
+
+            if (!content) {
+                container.innerHTML = '<div class="alert alert-danger">Error: No se pudo cargar la plantilla de Catálogos.</div>';
+                throw new Error('Plantilla no encontrada');
+            }
+
+            container.innerHTML = content;
+        }
+
+        function _cacheDom() {
+            dom = {
+                selector: document.getElementById('cat-selector'),
+                table: document.getElementById('cat-table'),
+                thead: document.getElementById('cat-thead-row'),
+                tbody: document.getElementById('cat-tbody'),
+                loader: document.getElementById('loader-overlay'),
+                btnAdd: document.getElementById('btn-add'),
+                count: document.getElementById('cat-count'),
+                // Modal puede no estar inicializado si bootstrap no cargó, pero asumimos que sí.
+                modalEl: document.getElementById('modal-catalogo'),
+                modalTitle: document.getElementById('modal-title'),
+                modalError: document.getElementById('modal-error'),
+                form: document.getElementById('form-catalogo'),
+                dynamicFields: document.getElementById('dynamic-fields'),
+                btnSave: document.getElementById('btn-save'),
+                fieldId: document.getElementById('field-id')
+            };
+
+            if (dom.modalEl) {
+                dom.modal = new bootstrap.Modal(dom.modalEl);
+            }
+        }
+
+        function _bindEvents() {
+            if (dom.selector) {
+                dom.selector.addEventListener('change', (e) => {
+                    state.activeCatalog = e.target.value;
+                    _loadData();
+                });
+            }
+
+            if (dom.btnAdd) {
+                dom.btnAdd.addEventListener('click', () => {
+                    _openModal(null);
+                });
+            }
+
+            if (dom.btnSave) {
+                dom.btnSave.addEventListener('click', _saveData);
+            }
+        }
+
+        async function _loadData() {
+            _setLoading(true);
+            try {
+                // Limpiar tabla antes de cargar
+                if (dom.tbody) dom.tbody.innerHTML = '';
+
+                // Actualizar headers
+                const config = CATALOG_CONFIG[state.activeCatalog];
+                if (dom.thead) {
+                    dom.thead.innerHTML = config.headers.map(h => `<th class="fw-semibold px-4 py-3">${h}</th>`).join('') + `<th class="fw-semibold px-4 py-3 text-end">Acciones</th>`;
+                }
+
+                // Fetch Data
+                const response = await serverCall('readAllRows', state.activeCatalog);
+                state.data = Array.isArray(response) ? response : [];
+
+                // Cargar dependencias (ej. aseguraradoras para siniestros)
+                if (state.activeCatalog === 'siniestros') {
+                    const asegs = await serverCall('readAllRows', 'aseguradoras');
+                    state.dependencyData = { aseguradoras: Array.isArray(asegs) ? asegs : [] };
+                } else {
+                    state.dependencyData = {};
+                }
+
+                _renderTable();
+
+            } catch (error) {
+                console.error('Error cargando catálogo:', error);
+                if (dom.tbody) dom.tbody.innerHTML = `<tr><td colspan="100" class="text-center text-danger py-4">${error.message}</td></tr>`;
+            } finally {
+                _setLoading(false);
+            }
+        }
+
+        function _renderTable() {
+            if (!dom.tbody) return;
+            const config = CATALOG_CONFIG[state.activeCatalog];
+            const keys = config.keys;
+
+            if (state.data.length === 0) {
+                dom.tbody.innerHTML = `<tr><td colspan="100" class="text-center text-muted py-5"><i class="bi bi-inbox fs-1 d-block mb-2"></i>Sin registros</td></tr>`;
+                if (dom.count) dom.count.textContent = '0 registros';
+                return;
+            }
+
+            const html = state.data.map(item => {
+                const cells = keys.map(k => {
+                    let val = item[k] || '';
+                    if (k === 'id') val = `<span class="font-monospace text-muted small">${val}</span>`;
+
+                    if (k === 'idAseguradora' && state.activeCatalog === 'siniestros' && state.dependencyData?.aseguradoras) {
+                        const aseg = state.dependencyData.aseguradoras.find(a => String(a.id) === String(val));
+                        if (aseg) val = `${aseg.aseguradora} <small class="text-muted">(${val})</small>`;
+                    }
+
+                    return `<td class="px-4 py-3">${val}</td>`;
+                }).join('');
+
+                const actions = `
+                    <td class="text-end px-4 py-3">
+                        <button class="btn btn-sm btn-outline-primary" onclick="Catalogos.editar(${item.id || item.ID})" title="Editar">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </td>
+                `;
+
+                return `<tr>${cells}${actions}</tr>`;
+            }).join('');
+
+            dom.tbody.innerHTML = html;
+            if (dom.count) dom.count.textContent = `${state.data.length} registros`;
+        }
+
+        function _setLoading(isLoading) {
+            if (dom.loader) dom.loader.classList.toggle('d-none', !isLoading);
+        }
+
+        // --- CRUD MODAL ---
+
+        function _openModal(id) {
+            if (!dom.modal) return;
+            dom.modalError.classList.add('d-none');
+            dom.dynamicFields.innerHTML = '';
+
+            const isEdit = !!id;
+            dom.fieldId.value = id || '';
+            dom.modalTitle.textContent = isEdit ? `Editar ${state.activeCatalog}` : `Nuevo ${state.activeCatalog}`;
+
+            const config = CATALOG_CONFIG[state.activeCatalog];
+            const item = isEdit ? state.data.find(d => (d.id || d.ID) == id) : {};
+
+            const editableKeys = config.keys.filter(k => k !== 'id');
+
+            editableKeys.forEach(k => {
+                const label = k.charAt(0).toUpperCase() + k.slice(1).replace(/([A-Z])/g, ' $1');
+                const val = item ? (item[k] || '') : '';
+
+                const col = document.createElement('div');
+                col.className = 'col-12';
+
+                let inputHtml = '';
+                if (k === 'idAseguradora' && state.activeCatalog === 'siniestros') {
+                    const options = (state.dependencyData?.aseguradoras || []).map(a =>
+                        `<option value="${a.id}" ${String(a.id) === String(val) ? 'selected' : ''}>${a.aseguradora}</option>`
+                    ).join('');
+
+                    inputHtml = `
+                        <select class="form-select" name="${k}" required>
+                            <option value="">-- Seleccionar --</option>
+                            ${options}
+                        </select>
+                    `;
+                } else {
+                    inputHtml = `<input type="text" class="form-control" name="${k}" value="${val}" required>`;
+                }
+
+                col.innerHTML = `
+                    <label class="form-label small text-muted text-uppercase fw-bold">${label}</label>
+                    ${inputHtml}
+                `;
+                dom.dynamicFields.appendChild(col);
+            });
+
+            dom.modal.show();
+        }
+
+        async function _saveData() {
+            const form = dom.form;
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
+            dom.btnSave.disabled = true;
+            dom.btnSave.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Guardando...';
+
+            try {
+                const id = dom.fieldId.value;
+                const activeKey = state.activeCatalog;
+
+                const payload = {};
+                // Recolectar Inputs y Selects
+                const inputs = dom.dynamicFields.querySelectorAll('input, select');
+                inputs.forEach(inp => {
+                    payload[inp.name] = inp.value;
+                });
+
+                if (id) {
+                    await serverCall('updateRow', activeKey, id, payload);
+                } else {
+                    await serverCall('createRow', activeKey, payload);
+                }
+
+                dom.modal.hide();
+                _showAlert('Éxito', 'Guardado correctamente');
+                await _loadData();
+
+            } catch (error) {
+                console.error(error);
+                dom.modalError.textContent = error.message;
+                dom.modalError.classList.remove('d-none');
+            } finally {
+                dom.btnSave.disabled = false;
+                dom.btnSave.innerHTML = '<i class="bi bi-save me-1"></i> Guardar';
+            }
+        }
+
+        function _showAlert(title, msg) {
+            if (globalThis.Swal) Swal.fire({ icon: 'success', title, text: msg, timer: 1500, showConfirmButton: false });
+            else alert(msg);
+        }
+
+        return {
+            init: init,
+            mount: init,
+            render: () => '<div id="catalogos-container"></div>',
+            editar: _openModal
+        };
+    })();
+</script>
