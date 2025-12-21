@@ -29,6 +29,11 @@
             }
         };
 
+        // --- HELPER DE NORMALIZACIÓN ---
+        function _normalize(val) {
+            return String(val || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        }
+
         async function init(container) {
             console.log('Iniciando Módulo de Catálogos...');
             // Inyectar plantilla
@@ -242,9 +247,9 @@
             if (state.data.length > 0) {
                 console.log('DEBUG _renderTable item[0]:', state.data[0]);
                 console.log('DEBUG _renderTable dependencyData keys:', Object.keys(state.dependencyData || {}));
-                if (state.dependencyData?.siniestros && state.dependencyData.siniestros.length > 0) {
-                    console.log('DEBUG First Siniestro:', state.dependencyData.siniestros[0]);
-                }
+                if (state.dependencyData?.comunicados?.length > 0) console.log('DEBUG First Comunicado:', state.dependencyData.comunicados[0]);
+                if (state.dependencyData?.siniestros?.length > 0) console.log('DEBUG First Siniestro:', state.dependencyData.siniestros[0]);
+                if (state.dependencyData?.aseguradoras?.length > 0) console.log('DEBUG First Aseguradora:', state.dependencyData.aseguradoras[0]);
             }
 
             const config = CATALOG_CONFIG[state.activeCatalog];
@@ -287,20 +292,36 @@
                         // 1. Referencia Virtual
                         if (k === 'virtual_referencia') {
                             let display = '-';
-                            const idCom = item.idComunicado || item.comunicado; // Fallback if ID is in 'comunicado' field
-                            if (idCom && dd.comunicados && dd.cuentas) {
-                                // Try finding by ID first
-                                const com = dd.comunicados.find(c => String(c.id) === String(idCom));
+                            // Intentar obtener ID de comunicado
+                            let idCom = item.idComunicado;
+                            // Si no hay idComunicado, o es 0, intentar buscar por otros campos si existen
+                            // Pero asumimos idComunicado es la llave.
+
+                            if (dd.comunicados && dd.cuentas) {
+                                // A. Buscar Comunicado Exacto por ID
+                                let com = dd.comunicados.find(c => String(c.id) === String(idCom));
+
+                                // B. Si no, buscar por Nombre (Fuzzy fallback) si idCom parece nombre
+                                if (!com && idCom && isNaN(Number(idCom))) {
+                                    const cleanId = _normalize(idCom);
+                                    com = dd.comunicados.find(c => _normalize(c.comunicado) === cleanId || _normalize(c.clave) === cleanId);
+                                }
+
                                 if (com) {
                                     // Handle variation in field names
                                     const refId = com.idReferencia || com.id_referencia || com.referencia;
-                                    const cta = dd.cuentas.find(c => String(c.id) === String(refId));
+                                    // A. Buscar Cuenta por ID
+                                    let cta = dd.cuentas.find(c => String(c.id) === String(refId));
+
+                                    // B. Fallback nombre cuenta? (Menos probable aqui, idReferencia suele ser numérico)
                                     if (cta) display = cta.referencia || cta.cuenta || cta.nombre;
                                 }
                             }
-                            // Fallback: If no lookup worked but we have a value...
-                            if (display === '-' && item.referencia) display = item.referencia;
-                            return `<td class="sheet-readonly text-center fw-bold text-primary small">${display}</td>`;
+                            // Fallback: If no lookup worked but we have a value stored directly
+                            if ((display === '-' || !display) && item.referencia) display = item.referencia;
+
+                            // CHANGE: Use input readonly for consistency
+                            return `<td><input type="text" class="sheet-input text-center fw-bold text-primary" value="${display}" readonly tabindex="-1"></td>`;
                         }
 
                         // 2. Comunicado 
@@ -308,21 +329,47 @@
                             let display = val;
                             let fullText = val;
                             if (dd.comunicados) {
-                                const com = dd.comunicados.find(c => String(c.id) === String(val));
+                                // A. ID Exacto
+                                let com = dd.comunicados.find(c => String(c.id) === String(val));
+
+                                // B. Fuzzy Name Match
+                                if (!com && val && isNaN(Number(val))) {
+                                    const clean = _normalize(val);
+                                    com = dd.comunicados.find(c => _normalize(c.comunicado) === clean);
+                                }
+
                                 if (com) {
                                     display = com.comunicado || com.nombre || com.clave;
-                                    fullText = display;
+                                    fullText = display; // Tooltip
+                                } else {
+                                    // display = val;
                                 }
                             }
-                            return `<td class="sheet-readonly" title="${fullText}">${display}</td>`;
+
+                            // FORCE DISPLAY of value if lookup failed
+                            if (!display && val) display = val;
+
+                            // LAST RESORT DEBUG: If value is totally empty, try to show raw object keys for the first row to help user debug
+                            if ((!display || display === 'undefined') && item === state.data[0]) {
+                                fullText = "DEBUG KEYS: " + Object.keys(item).join(', ');
+                                display = "[DEBUG: VACÍO]";
+                            }
+
+                            return `<td><input type="text" class="sheet-input" value="${display || ''}" readonly tabindex="-1" title="${fullText}"></td>`;
                         }
 
                         // 3. Ajustador (Select)
                         if (k === 'idAjustador') {
                             // Lógica Default: si está vacío, usar el de la referencia
                             let defaultSelected = val;
-                            if (!val && dd.comunicados && dd.cuentas) {
-                                const com = dd.comunicados.find(c => String(c.id) === String(item.idComunicado));
+                            if (!val && dd.comunicados && dd.cuentas && item.idComunicado) {
+                                // Re-look up del comunicado (reutilizar logica de arriba seria ideal pero aqui es local)
+                                let com = dd.comunicados.find(c => String(c.id) === String(item.idComunicado));
+                                if (!com && isNaN(Number(item.idComunicado))) {
+                                    const clean = _normalize(item.idComunicado);
+                                    com = dd.comunicados.find(c => _normalize(c.comunicado) === clean);
+                                }
+
                                 if (com) {
                                     const refId = com.idReferencia || com.id_referencia;
                                     const cta = dd.cuentas.find(c => String(c.id) === String(refId));
@@ -333,7 +380,9 @@
                             let optionsHtml = '';
                             if (dd.ajustadores) {
                                 optionsHtml = `<option value="">-</option>` + dd.ajustadores.map(x => {
-                                    const isSelected = String(x.id) === String(defaultSelected);
+                                    // Fuzzy compare option value vs selected
+                                    const isSelected = String(x.id) === String(defaultSelected) ||
+                                        (isNaN(Number(defaultSelected)) && _normalize(x.nombreAjustador) === _normalize(defaultSelected));
                                     return `<option value="${x.id}" ${isSelected ? 'selected' : ''}>${x.nombreAjustador || x.nombre}</option>`;
                                 }).join('');
                             }
@@ -345,7 +394,8 @@
                             let optionsHtml = '';
                             if (dd.siniestros) {
                                 optionsHtml = `<option value="">-</option>` + dd.siniestros.map(x => {
-                                    const isSelected = String(x.id) === String(val);
+                                    const isSelected = String(x.id) === String(val) ||
+                                        (isNaN(Number(val)) && _normalize(x.siniestro) === _normalize(val));
                                     return `<option value="${x.id}" ${isSelected ? 'selected' : ''}>${x.siniestro || x.nombre}</option>`;
                                 }).join('');
                             }
@@ -356,14 +406,26 @@
                         if (k === 'virtual_aseguradora') {
                             let display = '-';
                             const idSin = item.idSiniestro;
-                            if (idSin && dd.siniestros && dd.aseguradoras) {
-                                const s = dd.siniestros.find(x => String(x.id) === String(idSin));
-                                if (s && s.idAseguradora) {
-                                    const a = dd.aseguradoras.find(x => String(x.id) === String(s.idAseguradora));
+                            if (idSin && dd.siniestros) {
+                                let s = dd.siniestros.find(x => String(x.id) === String(idSin));
+                                // Fuzzy match siniestro
+                                if (!s && isNaN(Number(idSin))) {
+                                    const clean = _normalize(idSin);
+                                    s = dd.siniestros.find(x => _normalize(x.siniestro) === clean);
+                                }
+
+                                if (s && s.idAseguradora && dd.aseguradoras) {
+                                    let a = dd.aseguradoras.find(x => String(x.id) === String(s.idAseguradora));
+                                    // No fuzzy needed for idAseguradora mostly, but just in case
+                                    if (!a && isNaN(Number(s.idAseguradora))) {
+                                        const cleanA = _normalize(s.idAseguradora);
+                                        a = dd.aseguradoras.find(x => _normalize(x.aseguradora) === cleanA);
+                                    }
+
                                     if (a) display = a.aseguradora || a.nombre || a.descripcion;
                                 }
                             }
-                            return `<td id="cell-aseg-${itemId}" class="sheet-readonly small text-muted">${display}</td>`;
+                            return `<td id="cell-aseg-${itemId}"><input type="text" class="sheet-input text-muted small" value="${display}" readonly tabindex="-1"></td>`;
                         }
 
                         // 6. Fecha
@@ -661,10 +723,21 @@
                 const dd = state.dependencyData;
                 const cellAseg = document.getElementById('cell-aseg-' + id);
                 if (cellAseg && dd.siniestros && dd.aseguradoras) {
-                    const s = dd.siniestros.find(x => String(x.id) === String(val));
+                    let s = dd.siniestros.find(x => String(x.id) === String(val));
+                    // Fuzzy fallback
+                    if (!s && isNaN(Number(val))) {
+                        const clean = _normalize(val);
+                        s = dd.siniestros.find(x => _normalize(x.siniestro) === clean);
+                    }
+
                     let newAseg = '-';
                     if (s && s.idAseguradora) {
-                        const a = dd.aseguradoras.find(x => String(x.id) === String(s.idAseguradora));
+                        let a = dd.aseguradoras.find(x => String(x.id) === String(s.idAseguradora));
+                        // Fuzzy fallback aseg (unlikely for id but consistency)
+                        if (!a && isNaN(Number(s.idAseguradora))) {
+                            const cleanA = _normalize(s.idAseguradora);
+                            a = dd.aseguradoras.find(x => _normalize(x.aseguradora) === cleanA);
+                        }
                         if (a) newAseg = a.aseguradora || a.nombre;
                     }
                     cellAseg.textContent = newAseg;

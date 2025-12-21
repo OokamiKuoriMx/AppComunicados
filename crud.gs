@@ -723,14 +723,14 @@ function readDatosGenerales() {
             primaryField: 'id',
             headers: {
                 id: ['id', 'ID'],
-                idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado'],
+                idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado', 'Clave', 'Folio', 'Oficio', 'No. Oficio', 'Referencia del Comunicado', 'Referencia', 'Ref', 'Num Oficio', 'Numero Oficio'],
                 descripcion: ['descripcion', 'Descripción', 'Descripcion'],
                 fecha: ['fecha', 'Fecha'],
                 idEstado: ['idEstado', 'Estado', 'ID Estado'],
                 idDR: ['idDR', 'Distrito', 'Distrito de Riego', 'ID Distrito'],
                 idEmpresa: ['idEmpresa', 'Empresa'],
                 fechaAsignacion: ['fechaAsignacion', 'Fecha Asignación'],
-                idSiniestro: ['idSiniestro', 'Siniestro', 'ID Siniestro'],
+                idSiniestro: ['idSiniestro', 'Siniestro', 'ID Siniestro', 'Evento', 'Fenomeno'],
                 idActualizacion: ['idActualizacion', 'Actualización'],
                 idAjustador: ['idAjustador', 'Ajustador', 'Nombre Ajustador', 'ID Ajustador']
             }
@@ -783,14 +783,14 @@ function updateDatosGenerales(id, nuevosDatos) {
             primaryField: 'id',
             headers: {
                 id: ['id', 'ID'],
-                idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado'],
+                idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado', 'Clave', 'Folio', 'Oficio', 'No. Oficio', 'Referencia del Comunicado', 'Referencia', 'Ref', 'Num Oficio', 'Numero Oficio'],
                 descripcion: ['descripcion', 'Descripción', 'Descripcion'],
                 fecha: ['fecha', 'Fecha'],
                 idEstado: ['idEstado', 'Estado', 'ID Estado'],
                 idDR: ['idDR', 'Distrito', 'Distrito de Riego', 'ID Distrito'],
                 idEmpresa: ['idEmpresa', 'Empresa'],
                 fechaAsignacion: ['fechaAsignacion', 'Fecha Asignación'],
-                idSiniestro: ['idSiniestro', 'Siniestro', 'ID Siniestro'],
+                idSiniestro: ['idSiniestro', 'Siniestro', 'ID Siniestro', 'Evento', 'Fenomeno'],
                 idActualizacion: ['idActualizacion', 'Actualización'],
                 idAjustador: ['idAjustador', 'Ajustador', 'Nombre Ajustador', 'ID Ajustador']
             }
