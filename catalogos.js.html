@@ -138,18 +138,17 @@
                         dom.table.classList.add('sheet-table');
                         dom.table.classList.remove('table', 'table-hover', 'mb-0'); // Quitar estilos bootstrap standard
                         if (container) {
-                            container.classList.add('sheet-container');
+                            container.classList.add('sheet-container', 'sheet-scroll-area');
                             container.classList.remove('table-responsive', 'shadow-sm', 'rounded-3');
                         }
                         // Mostrar barra batch si hay cambios (o resetear)
-                        // TODO: Resetear cambios al cargar
                         state.pendingChanges = {};
                         _updateBatchUI();
                     } else {
                         dom.table.classList.remove('sheet-table');
                         dom.table.classList.add('table', 'table-hover', 'mb-0');
                         if (container) {
-                            container.classList.remove('sheet-container');
+                            container.classList.remove('sheet-container', 'sheet-scroll-area');
                             container.classList.add('table-responsive', 'shadow-sm', 'rounded-3');
                         }
                         document.getElementById('batch-save-bar').style.display = 'none';
@@ -355,7 +354,7 @@
                                 display = "[DEBUG: VACÍO]";
                             }
 
-                            return `<td><input type="text" class="sheet-input" value="${display || ''}" readonly tabindex="-1" title="${fullText}"></td>`;
+                            return `<td><input type="text" class="sheet-input font-monospace text-dark fw-bold small" value="${display || ''}" readonly tabindex="-1" title="${fullText}" style="opacity: 0.9;"></td>`;
                         }
 
                         // 3. Ajustador (Select)
@@ -451,12 +450,12 @@
                                     safeDate = val;
                                 }
                             }
-                            return `<td><input type="date" class="sheet-input" value="${safeDate}" data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)"></td>`;
+                            return `<td><input type="date" class="sheet-input text-center text-secondary" value="${safeDate}" data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)"></td>`;
                         }
 
                         // 7. Descripción
                         if (k === 'descripcion') {
-                            return `<td><input type="text" class="sheet-input" value="${val}" placeholder="..." data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)"></td>`;
+                            return `<td><input type="text" class="sheet-input" value="${val}" placeholder="Escribir descripción..." data-id="${itemId}" data-field="${k}" onchange="Catalogos.handleBatchChange(this)"></td>`;
                         }
 
                         // 8. Distritos / Estados (Selects Genéricos)
