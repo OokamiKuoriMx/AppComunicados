@@ -213,6 +213,23 @@ const TABLE_DEFINITIONS = {
         headers: ['id', 'idComunicado', 'tipo', 'nombre', 'detalles'],
         requiredFields: ['idComunicado', 'tipo'],
         uniqueFields: []
+    },
+
+    facturas: {
+        sheetName: 'Facturas',
+        primaryField: 'id',
+        headers: {
+            id: ['id', 'ID'],
+            idComunicado: ['idComunicado', 'Comunicado', 'Ref - Comunicado'],
+            folio: ['folio', 'Folio', 'Factura'],
+            fecha: ['fecha', 'Fecha', 'Fecha Factura'],
+            monto: ['monto', 'Monto', 'Total', 'Importe'],
+            uuid: ['uuid', 'UUID', 'Folio Fiscal'],
+            estatus: ['estatus', 'Estatus', 'Estado'],
+            proveedor: ['proveedor', 'Proveedor', 'Emisor']
+        },
+        requiredFields: ['folio', 'monto'],
+        uniqueFields: ['uuid']
     }
 };
 
@@ -235,16 +252,23 @@ function getTemplates(names) {
     const templates = {};
     names.forEach(name => {
         try {
-            // Si el nombre termina en .js, agregamos .html
-            // Si no termina en .html, también lo agregamos
+            // En Google Apps Script, createTemplateFromFile('foo') busca 'foo.html'
+            // Si tenemos un archivo 'importaciones.js.html', debemos pasar 'importaciones.js'
             let fileName = name;
-            if (name.endsWith('.js')) {
-                fileName = `${name}.html`;
-            } else if (!name.endsWith('.html')) {
-                fileName = name;
+            if (name.endsWith('.html')) {
+                // Si piden x.html, removemos extension porque createTemplateFromFile lo agrega automaticamente
+                fileName = name.replace('.html', '');
             }
-            templates[name] = include(fileName);
+            // Para archivos .js (ej: 'catalogos.js'), el archivo físico es 'catalogos.js.html'
+            // Pero createTemplateFromFile('catalogos.js') lo encontrará correctamente
+
+            console.log(`[getTemplates] Solicitado: "${name}" -> Buscando: "${fileName}"`);
+
+            const content = include(fileName);
+            console.log(`[getTemplates] Encontrado: "${fileName}" (Longitud: ${content ? content.length : 0})`);
+            templates[name] = content;
         } catch (e) {
+            console.error(`[getTemplates] ERROR cargando "${name}": ${e.message}`);
             Logger.log(`No se pudo cargar la plantilla: ${name}. Error: ${e.message}`);
             templates[name] = `<!-- Error: plantilla ${name} no encontrada -->`;
         }

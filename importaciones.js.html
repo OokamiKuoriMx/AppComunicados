@@ -1,0 +1,335 @@
+<script>
+    /**
+     * MÓDULO DE GESTIÓN DE IMPORTACIONES
+     */
+    console.log('📦 Importaciones.js cargado');
+    window.Importaciones = (() => {
+        'use strict';
+
+        async function init(container) {
+            console.log('Módulo Importaciones Inicializado');
+            await _mount(container);
+            // Inicializar el sub-modulo de facturas después de inyectar el HTML
+            if (window.ImportacionFacturas) {
+                ImportacionFacturas.init();
+            }
+        }
+
+        async function _mount(container) {
+            container.innerHTML = '';
+            // Intentar obtener de caché global
+            let content = globalThis.TEMPLATES?.['importaciones'];
+
+            if (!content) {
+                console.log('Plantilla importaciones no en caché, solicitando...');
+                try {
+                    content = await fetchTemplates('importaciones');
+                } catch (e) {
+                    console.error('Error cargando plantilla importaciones:', e);
+                }
+            }
+
+            if (!content) {
+                container.innerHTML = '<div class="alert alert-danger">Error: No se pudo cargar la plantilla de Importaciones.</div>';
+                throw new Error('Plantilla no encontrada');
+            }
+
+            container.innerHTML = content;
+        }
+
+        const mount = async (container) => {
+            console.log('Montando vista Importaciones');
+            // El mount se llama después de render, pero init ya hizo el trabajo
+            // Si llegamos aquí sin haber llamado init, cargamos la plantilla
+            if (!container.innerHTML || container.innerHTML.trim() === '' || container.innerHTML.includes('Vista Inyectada')) {
+                await _mount(container);
+                if (window.ImportacionFacturas) {
+                    ImportacionFacturas.init();
+                }
+            }
+        };
+
+        const abrirComunicados = () => {
+            // Reutilizamos el módulo global Importacion existente
+            if (window.Importacion && typeof Importacion.openModal === 'function') {
+                Importacion.openModal();
+            } else if (globalThis.Importacion && typeof Importacion.openModal === 'function') {
+                Importacion.openModal();
+            } else {
+                console.error('El módulo Importacion (Comunicados) no está cargado.');
+                alert('Error: Módulo de Importación de Comunicados no disponible.');
+            }
+        };
+
+        const abrirFacturas = () => {
+            if (window.ImportacionFacturas) {
+                ImportacionFacturas.openModal();
+            } else {
+                console.error('El módulo ImportacionFacturas no está cargado.');
+            }
+        };
+
+        return {
+            init,
+            render,
+            mount,
+            abrirComunicados,
+            abrirFacturas
+        };
+    })();
+
+    /**
+     * SUB-MÓDULO: IMPORTACIÓN DE FACTURAS
+     * Lógica idéntica a Importacion pero adaptada para Facturas
+     */
+    window.ImportacionFacturas = (() => {
+        'use strict';
+
+        // Cache del DOM
+        let dom = {};
+
+        // Estado
+        let currentFile = null;
+        let currentCsvContent = null;
+
+        const init = () => {
+            _cacheDom();
+            _addEventListeners();
+            console.log('Facturas: Listeners agregados');
+        };
+
+        const _cacheDom = () => {
+            dom.dropZone = document.getElementById('drop-zone-facturas');
+            dom.fileInput = document.getElementById('file-input-facturas');
+            dom.fileInfo = document.getElementById('file-info-facturas');
+            dom.filenameDisplay = document.getElementById('filename-display-facturas');
+            dom.btnAnalizar = document.getElementById('btn-analizar-facturas');
+            dom.loader = document.getElementById('import-loader-facturas');
+            dom.previewContainer = document.getElementById('preview-container-facturas');
+            dom.previewBody = document.getElementById('preview-body-facturas');
+            dom.previewSummary = document.getElementById('preview-summary-facturas');
+            dom.btnConfirmar = document.getElementById('btn-confirmar-facturas');
+            dom.modal = document.getElementById('modalImportacionFacturas');
+        };
+
+        const _addEventListeners = () => {
+            if (!dom.dropZone) return; // Si no estamos en la vista, salir
+
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dom.dropZone.addEventListener(eventName, _preventDefaults, false);
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dom.dropZone.addEventListener(eventName, () => dom.dropZone.classList.add('dragover'), false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dom.dropZone.addEventListener(eventName, () => dom.dropZone.classList.remove('dragover'), false);
+            });
+
+            dom.dropZone.addEventListener('drop', _handleDrop, false);
+            dom.fileInput.addEventListener('change', _handleFileSelect, false);
+
+            if (dom.btnConfirmar) {
+                dom.btnConfirmar.onclick = confirmar;
+            }
+        };
+
+        const _preventDefaults = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        const _handleDrop = (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            _handleFiles(files);
+        };
+
+        const _handleFileSelect = (e) => {
+            const files = e.target.files;
+            _handleFiles(files);
+        };
+
+        const _handleFiles = (files) => {
+            if (files.length > 0) {
+                currentFile = files[0];
+                dom.filenameDisplay.textContent = currentFile.name;
+                dom.fileInfo.classList.remove('d-none');
+                dom.btnAnalizar.disabled = false;
+            }
+        };
+
+        const reset = () => {
+            currentFile = null;
+            currentCsvContent = null;
+            if (dom.fileInput) dom.fileInput.value = '';
+            if (dom.fileInfo) dom.fileInfo.classList.add('d-none');
+            if (dom.btnAnalizar) dom.btnAnalizar.disabled = true;
+            if (dom.previewContainer) dom.previewContainer.classList.add('d-none');
+            if (dom.previewBody) dom.previewBody.innerHTML = '';
+            if (dom.btnConfirmar) dom.btnConfirmar.classList.add('d-none');
+        };
+
+        const analizar = () => {
+            if (!currentFile) return;
+
+            const fileName = currentFile.name.toLowerCase();
+            const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+
+            if (isExcel) {
+                _procesarExcel(currentFile);
+            } else {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const content = e.target.result;
+                    await _procesarBackend(content);
+                };
+                reader.readAsText(currentFile);
+            }
+        };
+
+        const _procesarExcel = async (file) => {
+            _showLoader(true);
+            try {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const base64Data = e.target.result.split(',')[1];
+                    const result = await serverCall('convertirExcelACsv', base64Data);
+
+                    if (result.success) {
+                        await _procesarBackend(result.data.csvContent); // Ajuste: result.data.csvContent segun logica existente
+                    } else {
+                        alert('Error al procesar Excel: ' + result.message);
+                        _showLoader(false);
+                    }
+                };
+                reader.readAsDataURL(file);
+            } catch (error) {
+                console.error(error);
+                alert('Error al leer Excel: ' + error.message);
+                _showLoader(false);
+            }
+        };
+
+        const _procesarBackend = async (csvContent) => {
+            _showLoader(true);
+            currentCsvContent = csvContent;
+
+            try {
+                // LLAMADA AL SERVIDOR PARA PREVISUALIZAR FACTURAS
+                const result = await serverCall('previsualizarImportacionFacturas', csvContent);
+
+                if (result.success) {
+                    _renderResultados(result.data);
+                } else {
+                    throw new Error(result.message);
+                }
+
+            } catch (error) {
+                console.error(error);
+                alert('Error en el análisis: ' + error.message);
+            } finally {
+                _showLoader(false);
+            }
+        };
+
+        const _renderResultados = (data) => {
+            dom.previewContainer.classList.remove('d-none');
+            dom.previewBody.innerHTML = '';
+
+            const resumen = data.resumen || {};
+            const filas = data.filas || [];
+
+            dom.previewSummary.innerHTML = `
+                <strong>Totales:</strong> ${resumen.total || 0} <span class="mx-2">|</span>
+                <strong>Válidos:</strong> ${resumen.validos || 0} <span class="mx-2">|</span>
+                <strong>Errores:</strong> ${resumen.omitidos || 0}
+            `;
+
+            if (resumen.validos > 0) {
+                dom.btnConfirmar.classList.remove('d-none');
+                dom.btnConfirmar.disabled = false;
+            } else {
+                dom.btnConfirmar.classList.add('d-none');
+            }
+
+            const html = filas.map(d => {
+                let badgeClass = d.esValido ? 'bg-success' : 'bg-danger';
+                let badgeText = d.esValido ? 'OK' : 'ERROR';
+
+                return `
+                    <tr>
+                        <td class="font-monospace small">${d.folio || '-'}</td>
+                        <td class="font-monospace small" title="${d.uuid}">${d.uuid ? d.uuid.substring(0, 8) + '...' : '-'}</td>
+                        <td class="small">${d.fecha || ''}</td>
+                        <td class="small fw-bold text-primary">${d.comunicadoRef || '<span class="text-muted">N/A</span>'}</td> 
+                        <td class="text-end font-monospace">${d.monto ? '$' + parseFloat(d.monto).toLocaleString() : '-'}</td>
+                        <td class="text-center"><span class="badge ${badgeClass}">${badgeText}</span></td>
+                        <td class="small text-danger">${d.motivo || ''}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            dom.previewBody.innerHTML = html;
+        };
+
+        const confirmar = async () => {
+            if (!currentCsvContent) return;
+
+            _showLoader(true);
+            dom.btnConfirmar.disabled = true;
+
+            try {
+                const result = await serverCall('ejecutarImportacionFacturas', currentCsvContent);
+                if (result.success) {
+                    alert(`Importación Exitosa.\nProcesados: ${result.data.resumen.procesados}`);
+                    reset();
+                    // Cerrar modal
+                    if (dom.modal) {
+                        const mInstance = bootstrap.Modal.getInstance(dom.modal);
+                        if (mInstance) mInstance.hide();
+                    }
+                } else {
+                    alert('Error al guardar: ' + result.message);
+                    dom.btnConfirmar.disabled = false;
+                }
+            } catch (error) {
+                alert('Error crítico: ' + error.message);
+                dom.btnConfirmar.disabled = false;
+            } finally {
+                _showLoader(false);
+            }
+        };
+
+        const _showLoader = (show) => {
+            if (show) {
+                dom.loader.classList.remove('d-none');
+                dom.btnAnalizar.disabled = true;
+                dom.dropZone.classList.add('d-none');
+            } else {
+                dom.loader.classList.add('d-none');
+                dom.btnAnalizar.disabled = false;
+                dom.dropZone.classList.remove('d-none');
+            }
+        };
+
+        const openModal = () => {
+            if (!dom.modal) _cacheDom(); // Reintentar cache
+            reset();
+            if (dom.modal) {
+                const modal = new bootstrap.Modal(dom.modal);
+                modal.show();
+            } else {
+                console.error('Modal de Facturas no encontrado en el DOM');
+            }
+        };
+
+        return {
+            init,
+            reset,
+            openModal,
+            analizar
+        };
+    })();
+</script>

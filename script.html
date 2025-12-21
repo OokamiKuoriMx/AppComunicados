@@ -66,7 +66,16 @@
         const div = document.createElement('div');
         div.innerHTML = html;
         const script = div.querySelector('script');
-        return script ? script.textContent : '';
+
+        // DEBUG EXTRACCION
+        if (!script) {
+            console.error('❌ extractScriptContent: No se encontró etiqueta <script> en el fragmento HTML.');
+            devLog('Fragmento recibido (primeros 100 caracteres):', html.substring(0, 100));
+            return '';
+        }
+        const content = script.textContent;
+        devLog(`✅ Contenido extraído de <script>. Longitud: ${content.length}`);
+        return content;
     }
 
     function setAppLoading(isLoading) {
@@ -100,12 +109,22 @@
     }
 
     function injectComponentScript(code) {
-        if (!code) return;
+        if (!code) {
+            console.error('❌ injectComponentScript: code es null/vacío');
+            return;
+        }
         removeComponentScript();
         const scriptEl = document.createElement('script');
         scriptEl.id = 'componentScript';
-        devLog(`Inyectando script de componente`);
-        scriptEl.textContent = extractScriptContent(code);
+
+        const extracted = extractScriptContent(code);
+        if (!extracted) {
+            console.error('❌ injectComponentScript: El contenido extraído está vacío.');
+            return;
+        }
+
+        devLog(`Inyectando script de componente (Longitud final: ${extracted.length})`);
+        scriptEl.textContent = extracted;
         (componentScriptAnchor?.parentNode || document.body || document.documentElement).appendChild(scriptEl);
     }
 
@@ -185,6 +204,11 @@
             script: 'catalogos.js',
             template: 'catalogos',
             global: 'Catalogos'
+        },
+        '#/importaciones': {
+            script: 'importaciones.js',
+            template: 'importaciones',
+            global: 'Importaciones'
         }
 
     };
@@ -311,11 +335,24 @@
             if (config.script && !loadedScripts.has(config.script)) {
                 try {
                     const code = await loadServerFragment(config.script);
-                    devLog(`Script cargado para ${hash} `);
+                    devLog(`Script cargado para ${hash}. Longitud: ${code ? code.length : 0}`);
+                    if (!code || code.length < 10) {
+                        console.error(`⚠️ Script ${config.script} parece vacío o muy corto.`);
+                    }
                     injectComponentScript(code);
                     loadedScripts.add(config.script);
                     // Give the browser a moment to execute the script
-                    await new Promise(r => setTimeout(r, 50));
+                    await new Promise(r => setTimeout(r, 100)); // Increased timeout
+
+                    // DEBUG: Verificar si se definió
+                    if (globalThis[config.global] || window[config.global]) {
+                        devLog(`✅ Global ${config.global} detectado después de carga.`);
+                    } else {
+                        console.error(`❌ Global ${config.global} NO detectado después de carga y espera.`);
+                        // Intento de fallback: buscar si está en window explícitamente y asignar a globalThis
+                        if (window[config.global]) globalThis[config.global] = window[config.global];
+                    }
+
                 } catch (err) {
                     console.error(`Fallo al cargar script para ${hash} `, err);
                     return NotFound;

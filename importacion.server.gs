@@ -851,3 +851,229 @@ function _generarCsvErrores(listaOmitidos) {
     });
     return Utilities.base64Encode(csvString);
 }
+
+// ============================================================================
+// MÓDULO: IMPORTACIÓN DE FACTURAS
+// ============================================================================
+
+/**
+ * API PÚBLICA: Previsualizar Facturas (Solo Lectura)
+ */
+function previsualizarImportacionFacturas(fileContent) {
+    const contexto = 'previsualizarImportacionFacturas';
+    console.log(`[${contexto}] Iniciando...`);
+
+    try {
+        const rows = parseFacturaFile(fileContent);
+
+        // Cargar caches necesarios
+        const facturasExistentes = readAllRows('facturas').data || [];
+        const comunicadosExistentes = readAllRows('comunicados').data || [];
+        const cuentasExistentes = readAllRows('cuentas').data || []; // Por si referencia es por cuenta?? No, requerimos ID Comunicado o Clave.
+
+        // Mapeo UUIDs existentes
+        const uuidsMap = new Set(facturasExistentes.map(f => String(f.uuid || '').toUpperCase()));
+
+        // Mapeo Comunicados (Clave -> ID)
+        // La columna REF_COMUNICADO puede ser la CLAVE del comunicado (e.g. C-001)
+        const comunicadoMap = new Map();
+        comunicadosExistentes.forEach(c => {
+            comunicadoMap.set(String(c.comunicado).trim().toUpperCase(), c);
+        });
+
+        const previewData = rows.map(row => {
+            const h = row;
+            const analisis = {
+                esValido: true,
+                motivo: null,
+                uuidDuplicado: false,
+                comunicadoEncontrado: false
+            };
+
+            // Validaciones
+            if (!h.uuid || !h.folio || !h.monto || !h.refComunicado) {
+                analisis.esValido = false;
+                analisis.motivo = 'Datos obligatorios faltantes (UUID, Folio, Monto, Ref)';
+            }
+
+            // Validar UUID Único
+            if (h.uuid && uuidsMap.has(h.uuid.toUpperCase())) {
+                analisis.esValido = false;
+                analisis.motivo = 'UUID ya registrado en el sistema';
+                analisis.uuidDuplicado = true;
+            }
+
+            // Validar Referencia Comunicado
+            let comRef = null;
+            if (h.refComunicado) {
+                const key = String(h.refComunicado).trim().toUpperCase();
+                const found = comunicadoMap.get(key);
+                if (found) {
+                    analisis.comunicadoEncontrado = true;
+                    comRef = found.comunicado; // Mostrar clave real
+                } else {
+                    analisis.esValido = false;
+                    analisis.motivo = `Comunicado '${h.refComunicado}' no encontrado`;
+                }
+            }
+
+            return {
+                folio: h.folio,
+                uuid: h.uuid,
+                fecha: h.fecha ? new Date(h.fecha).toISOString().split('T')[0] : '',
+                monto: h.monto,
+                comunicadoRef: h.refComunicado,
+                proveedor: h.proveedor,
+                estatus: h.estatus,
+                esValido: analisis.esValido,
+                motivo: analisis.motivo
+            };
+        });
+
+        const resumen = {
+            total: previewData.length,
+            validos: previewData.filter(d => d.esValido).length,
+            omitidos: previewData.filter(d => !d.esValido).length
+        };
+
+        return {
+            success: true,
+            data: {
+                resumen: resumen,
+                filas: previewData
+            }
+        };
+
+    } catch (error) {
+        console.error(`Error en ${contexto}:`, error);
+        return { success: false, message: error.message };
+    }
+}
+
+/**
+ * Controladora para Ejecutar la Importación de Facturas
+ */
+function ejecutarImportacionFacturas(fileContent) {
+    const contexto = 'ejecutarImportacionFacturas';
+    console.log(`[${contexto}] Iniciando persistencia...`);
+
+    try {
+        const rows = parseFacturaFile(fileContent);
+
+        // Recargar cache para asegurar consistencia
+        const facturasExistentes = readAllRows('facturas').data || [];
+        const comunicadosExistentes = readAllRows('comunicados').data || [];
+
+        const uuidsMap = new Set(facturasExistentes.map(f => String(f.uuid || '').toUpperCase()));
+        const comunicadoMap = new Map();
+        comunicadosExistentes.forEach(c => {
+            comunicadoMap.set(String(c.comunicado).trim().toUpperCase(), c.id); // Map Clave -> ID Real
+        });
+
+        // Filtrar y preparar para batch
+        const batchFacturas = [];
+        const omitidos = [];
+
+        rows.forEach(row => {
+            // Re-validación rápida
+            const uuid = String(row.uuid || '').trim().toUpperCase();
+            if (!uuid || !row.folio || !row.monto || !row.refComunicado) {
+                omitidos.push({ ...row, error: 'Datos incompletos' });
+                return;
+            }
+            if (uuidsMap.has(uuid)) {
+                omitidos.push({ ...row, error: 'UUID duplicado' });
+                return;
+            }
+
+            const comKey = String(row.refComunicado).trim().toUpperCase();
+            const idComunicado = comunicadoMap.get(comKey);
+
+            if (!idComunicado) {
+                omitidos.push({ ...row, error: 'Comunicado no existe' });
+                return;
+            }
+
+            batchFacturas.push({
+                idComunicado: idComunicado,
+                folio: row.folio,
+                fecha: row.fecha, // Deberia ser obj Date o string ISO? createBatch usa raw, Sheets parsea. Mejor Date.
+                monto: row.monto,
+                uuid: row.uuid,
+                estatus: row.estatus || 'VIGENTE',
+                proveedor: row.proveedor
+            });
+        });
+
+        let insertedCount = 0;
+        if (batchFacturas.length > 0) {
+            const res = createBatch('facturas', batchFacturas);
+            insertedCount = res.count;
+        }
+
+        return {
+            success: true,
+            data: {
+                resumen: {
+                    procesados: insertedCount,
+                    omitidos: omitidos.length
+                },
+                omitidos: omitidos // Opcional devolver detalle
+            },
+            message: 'Importación de facturas completada'
+        };
+
+    } catch (e) {
+        console.error(`Error en ${contexto}:`, e);
+        return { success: false, message: e.message };
+    }
+}
+
+/**
+ * Parser específico para Facturas
+ * Columas esperadas: FOLIO, FECHA, MONTO, UUID, PROVEEDOR, REF_COMUNICADO
+ */
+function parseFacturaFile(csvText) {
+    let cleanCsv = csvText;
+    if (cleanCsv.charCodeAt(0) === 0xFEFF) cleanCsv = cleanCsv.slice(1);
+
+    const rows = Utilities.parseCsv(cleanCsv);
+    if (!rows || rows.length < 2) return [];
+
+    const headers = rows[0].map(h => String(h).trim().toUpperCase());
+    const dataRows = rows.slice(1);
+
+    // Mapeo Indices
+    const idxFolio = headers.findIndex(h => h.includes('FOLIO') && !h.includes('FISCAL'));
+    const idxFecha = headers.findIndex(h => h.includes('FECHA'));
+    const idxMonto = headers.findIndex(h => h === 'MONTO' || h === 'TOTAL' || h === 'IMPORTE');
+    const idxUuid = headers.findIndex(h => h === 'UUID' || h === 'FOLIO FISCAL' || h === 'FOLIO_FISCAL');
+    const idxProv = headers.findIndex(h => h === 'PROVEEDOR' || h === 'EMISOR' || h === 'RAZON SOCIAL');
+    const idxRef = headers.findIndex(h => h === 'REF_COMUNICADO' || h === 'COMUNICADO' || h === 'REFERENCIA');
+    const idxEstatus = headers.findIndex(h => h === 'ESTATUS' || h === 'ESTADO');
+
+    if (idxUuid === -1 || idxMonto === -1) {
+        throw new Error('Formato inválido: Se requieren columnas UUID y MONTO/TOTAL.');
+    }
+
+    return dataRows.map(r => {
+        // Parsear fecha flexible
+        let fecha = null;
+        if (idxFecha > -1 && r[idxFecha]) {
+            // Intentar parseo básico, o dejar string
+            const val = r[idxFecha];
+            // Si es string 'DD/MM/YYYY', convertir. Si es ISO, dejar.
+            fecha = val;
+        }
+
+        return {
+            folio: idxFolio > -1 ? String(r[idxFolio]).trim() : 'S/N',
+            fecha: fecha,
+            monto: idxMonto > -1 ? (parseNumeric(r[idxMonto]) || 0) : 0,
+            uuid: idxUuid > -1 ? String(r[idxUuid]).trim() : null,
+            proveedor: idxProv > -1 ? String(r[idxProv]).trim() : '',
+            refComunicado: idxRef > -1 ? String(r[idxRef]).trim() : null,
+            estatus: idxEstatus > -1 ? String(r[idxEstatus]).trim() : 'Por Validar'
+        };
+    }).filter(obj => obj.uuid); // Filtrar filas vacias
+}
