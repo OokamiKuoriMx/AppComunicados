@@ -327,17 +327,46 @@
 
 
 
-        const openModal = () => {
+        const openModal = async () => {
+            let modalEl = document.getElementById('modalImportacion');
+
+            // Si el modal no existe en el DOM, cargarlo dinámicamente
+            if (!modalEl) {
+                console.log('Modal de importación no encontrado, inyectando HTML dinámicamente...');
+                try {
+                    const html = await globalThis.fetchTemplates('importacion_modal');
+                    if (html) {
+                        const div = document.createElement('div');
+                        div.innerHTML = html;
+                        // El modal suele ser el primer elemento
+                        const newModal = div.querySelector('#modalImportacion');
+                        if (newModal) {
+                            document.body.appendChild(newModal);
+                            modalEl = newModal;
+                            init(); // Re-inicializar listeners
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error cargando plantilla del modal:', e);
+                    alert('Error al cargar la interfaz de importación.');
+                    return;
+                }
+            }
+
             // Ensure DOM is cached if not already
             if (!dom.previewContainer) init();
 
             reset();
-            const modalEl = document.getElementById('modalImportacion');
+
+            // Re-verificar referencia por si acaso
+            modalEl = document.getElementById('modalImportacion');
+
             if (modalEl) {
                 const modal = new bootstrap.Modal(modalEl);
                 modal.show();
             } else {
-                console.error('Modal de importación no encontrado en el DOM');
+                console.error('Modal de importación no encontrado en el DOM (Fatal)');
+                alert('No se pudo inicializar el módulo de importación.');
             }
         };
 

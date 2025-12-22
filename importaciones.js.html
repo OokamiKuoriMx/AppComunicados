@@ -15,6 +15,8 @@
             }
         }
 
+        const render = () => '<div class="container-fluid"><h2>Importaciones</h2><p>Cargando módulo...</p></div>';
+
         async function _mount(container) {
             container.innerHTML = '';
             // Intentar obtener de caché global
@@ -39,25 +41,68 @@
 
         const mount = async (container) => {
             console.log('Montando vista Importaciones');
-            // El mount se llama después de render, pero init ya hizo el trabajo
-            // Si llegamos aquí sin haber llamado init, cargamos la plantilla
-            if (!container.innerHTML || container.innerHTML.trim() === '' || container.innerHTML.includes('Vista Inyectada')) {
-                await _mount(container);
-                if (window.ImportacionFacturas) {
-                    ImportacionFacturas.init();
-                }
+
+            // PREFETCH OPTIMISTA: Iniciar carga de recursos en background
+            if (!globalThis.Importacion) {
+                console.log('🚀 Iniciando pre-carga de comunicados.js en segundo plano...');
+                // Fire and forget - no await
+                globalThis.loadDynamicScript('comunicados.js').catch(e => console.warn('Prefetch error:', e));
+                globalThis.fetchTemplates('importacion_modal').catch(e => console.warn('Prefetch modal error:', e));
+            }
+
+            // Siempre cargar la plantilla real en mount
+            await _mount(container);
+            if (window.ImportacionFacturas) {
+                ImportacionFacturas.init();
             }
         };
 
-        const abrirComunicados = () => {
-            // Reutilizamos el módulo global Importacion existente
-            if (window.Importacion && typeof Importacion.openModal === 'function') {
-                Importacion.openModal();
-            } else if (globalThis.Importacion && typeof Importacion.openModal === 'function') {
-                Importacion.openModal();
-            } else {
-                console.error('El módulo Importacion (Comunicados) no está cargado.');
-                alert('Error: Módulo de Importación de Comunicados no disponible.');
+        const abrirComunicados = async () => {
+            // UI FEEDBACK
+            let btn = null;
+            // Intentamos obtener el botón desde el evento global
+            if (typeof event !== 'undefined' && event && event.currentTarget) {
+                btn = event.currentTarget;
+            }
+
+            let originalContent = '';
+            if (btn) {
+                btn.disabled = true;
+                originalContent = btn.innerHTML;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Cargando...';
+            }
+
+            try {
+                // Verificar si Importacion está disponible o intentar cargarlo
+                if (!globalThis.Importacion) {
+                    console.log('Módulo Importacion no encontrado, intentando cargar dinámicamente...');
+                    const loaded = await globalThis.loadDynamicScript('comunicados.js');
+                    if (!loaded) {
+                        alert('Error: No se pudo cargar el módulo de Importación de Comunicados.');
+                        if (btn) { btn.disabled = false; btn.innerHTML = originalContent; }
+                        return;
+                    }
+                }
+
+                // Reutilizamos el módulo global Importacion existente
+                if (globalThis.Importacion && typeof Importacion.openModal === 'function') {
+                    // Esperar un tick para asegurar que el UI se actualizo
+                    await new Promise(r => requestAnimationFrame(r));
+                    await Importacion.openModal();
+                    // Restaurar boton despues de abrir
+                    if (btn) { btn.disabled = false; btn.innerHTML = originalContent; }
+                } else if (window.Importacion && typeof Importacion.openModal === 'function') {
+                    await Importacion.openModal();
+                    if (btn) { btn.disabled = false; btn.innerHTML = originalContent; }
+                } else {
+                    console.error('El módulo Importacion (Comunicados) no está cargado.');
+                    alert('Error: Módulo de Importación de Comunicados no disponible.');
+                    if (btn) { btn.disabled = false; btn.innerHTML = originalContent; }
+                }
+            } catch (err) {
+                console.error('Error en abrirComunicados:', err);
+                alert('Ocurrió un error inesperado al abrir el módulo.');
+                if (btn) { btn.disabled = false; btn.innerHTML = originalContent; }
             }
         };
 

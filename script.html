@@ -323,6 +323,40 @@
         devLog('✅ PASO 1 completado');
     }
 
+
+
+    /**
+     * Carga un script JS dinámicamente si no está cargado aún.
+     * @param {string} scriptName Nombre del archivo script (ej: 'comunicados.js')
+     */
+    async function loadDynamicScript(scriptName) {
+        if (loadedScripts.has(scriptName)) {
+            devLog(`Script ${scriptName} ya estaba cargado.`);
+            return true;
+        }
+
+        devLog(`Cargando script dinámico: ${scriptName}`);
+        try {
+            const code = await loadServerFragment(scriptName);
+            if (!code || code.length < 10) {
+                console.error(`⚠️ Script dinámico ${scriptName} parece vacío o muy corto.`);
+                return false;
+            }
+            injectComponentScript(code);
+            loadedScripts.add(scriptName);
+            // Dar tiempo al navegador para parsear y ejecutar
+            await new Promise(r => setTimeout(r, 100));
+            devLog(`✅ Script dinámico ${scriptName} cargado correctamente.`);
+            return true;
+        } catch (err) {
+            console.error(`❌ Fallo al cargar script dinámico ${scriptName}`, err);
+            return false;
+        }
+    }
+
+    // Exponer globalmente
+    globalThis.loadDynamicScript = loadDynamicScript;
+
     async function app_ResolveRoute(hash) {
         devLog(`--- PASO 2: Resolviendo Ruta[${hash}]--- `);
         if (staticRoutes[hash]) {
