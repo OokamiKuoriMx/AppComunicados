@@ -249,6 +249,13 @@
                     if (d.analisis.cuenta.status === 'NUEVO') analisisBadges.push('<span class="badge bg-info text-dark ms-1">Nueva Cuenta</span>');
                     if (d.analisis.siniestro.status === 'NUEVO') analisisBadges.push('<span class="badge bg-purple ms-1" style="background-color: #6f42c1;">Nuevo Siniestro</span>');
                     if (d.analisis.distrito.status === 'NUEVO') analisisBadges.push('<span class="badge bg-info text-dark ms-1">Nuevo DR</span>');
+
+                    // Comunicado Status
+                    if (d.analisis.comunicado?.status === 'EXISTE') {
+                        analisisBadges.push('<span class="badge bg-warning text-dark ms-1"><i class="bi bi-exclamation-circle me-1"></i>Comunicado Existente</span>');
+                    } else if (d.analisis.comunicado?.status === 'NUEVO') {
+                        analisisBadges.push('<span class="badge bg-success ms-1">Nuevo Comunicado</span>');
+                    }
                 }
 
                 return `
@@ -963,8 +970,6 @@
         }
 
         /**
-         * Abre el detalle del comunicado (Redirección unificada)
-         /**
          * Abre el detalle del comunicado en MODAL (Vista Rápida)
          */
         function abrirModal(idComunicado) {

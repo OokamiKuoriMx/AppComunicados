@@ -77,6 +77,15 @@
             dom.headerSubtitle = document.getElementById('header-subtitulo');
             dom.btnVolver = document.getElementById('btn-volver-listado');
             dom.btnGuardar = document.getElementById('btn-guardar-todo');
+            dom.btnEliminar = document.getElementById('btn-eliminar-comunicado');
+            dom.btnConfirmDelete = document.getElementById('btn-confirm-delete-detalle');
+
+            const modalEl = document.getElementById('modalConfirmDeleteDetalle');
+            if (modalEl) {
+                dom.modalDelete = new bootstrap.Modal(modalEl);
+            } else {
+                console.warn('Modal ConfirmDeleteDetalle no encontrado. Posible desactualización de plantilla.');
+            }
 
             // General
             dom.genId = document.getElementById('gen-id');
@@ -142,6 +151,40 @@
                 list: document.getElementById('lista-tickets'),
                 btnAdd: document.getElementById('btn-add-ticket')
             };
+        }
+
+        // --- HANDLERS (New) ---
+        function _handleDeleteClick() {
+            dom.modalDelete?.show();
+        }
+
+        async function _confirmDelete() {
+            const id = state.id;
+            if (!id) return;
+
+            const btn = dom.btnConfirmDelete;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = 'Eliminando...';
+
+            try {
+                // Call backend deleteComunicado (CASCADE)
+                await serverCall('deleteComunicado', id);
+
+                dom.modalDelete.hide();
+                globalThis.showToast?.('Comunicado eliminado correctamente.', 'success');
+
+                // Redirect back to list
+                setTimeout(() => {
+                    location.hash = '#/comunicados';
+                }, 500);
+
+            } catch (error) {
+                console.error("Delete Error:", error);
+                alert('Error al eliminar: ' + error.message);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
         }
 
         function _forceUppercase(input) {
@@ -1058,20 +1101,6 @@
             render: () => '<div id="comunicado-detalle-container"></div>', // Método render requerido
             updateFinanciero, removeFinanciero,
             updatePresupuesto, removePresupuesto,
-            updateEquipo, removeEquipo,
-            updateEquipo, removeEquipo,
-            updateTicket, removeTicket,
-            // Exportar funciones del modal
-            abrirEditorPresupuesto,
-            addLineaPresupuesto,
-            removeLineaPresupuesto,
-            updateEquipo, removeEquipo,
-            updateTicket, removeTicket,
-            // Exportar funciones del modal
-            abrirEditorPresupuesto,
-            addLineaPresupuesto,
-            removeLineaPresupuesto,
-            updateLineaPresupuesto,
             updateEquipo, removeEquipo,
             updateTicket, removeTicket,
             // Exportar funciones del modal

@@ -1313,3 +1313,92 @@ function procesarAltaExpress(payload) {
         return crearRespuestaError(`Error en proceso Alta Express: ${error.message}`, { source: contexto, error });
     }
 }
+
+/**
+ * === ELIMINAR COMUNICADO (EN CASCADA) ===
+ * Elimina un comunicado y todos sus registros dependientes.
+ * Orden de eliminación:
+ * 1. Hijos directos simples: Tickets, Equipo, Financiero.
+ * 2. Hijos complejos: Actualizaciones (y sus líneas de presupuesto).
+ * 3. Relación 1:1: Datos Generales.
+ * 4. Padre: Comunicado.
+ */
+function deleteComunicado(id) {
+    const contexto = 'deleteComunicado';
+    try {
+        const comunicadoId = String(id || '').trim();
+        if (!comunicadoId) {
+            return crearRespuestaError('Se requiere el ID del comunicado', { source: contexto });
+        }
+
+        // 1. Validar existencia del comunicado
+        const comunicadoResult = buscarPorId('comunicados', comunicadoId);
+        if (!comunicadoResult.success) {
+            return propagarRespuestaError(contexto, comunicadoResult);
+        }
+        const comunicado = comunicadoResult.data;
+
+        // 2. ELIMINAR HIJOS DIRECTOS SIMPLES
+        // Tickets
+        const ticketsResp = readAllRows('tickets');
+        if (ticketsResp.success && ticketsResp.data) {
+            const tickets = ticketsResp.data.filter(t => String(t.idComunicado) === comunicadoId);
+            tickets.forEach(t => eliminarRegistro('tickets', t.id));
+        }
+
+        // Equipo
+        const equipoResp = readAllRows('equipo');
+        if (equipoResp.success && equipoResp.data) {
+            const equipo = equipoResp.data.filter(e => String(e.idComunicado) === comunicadoId);
+            equipo.forEach(e => eliminarRegistro('equipo', e.id));
+        }
+
+        // Financiero
+        const financieroResp = readAllRows('financiero');
+        if (financieroResp.success && financieroResp.data) {
+            const items = financieroResp.data.filter(f => String(f.idComunicado) === comunicadoId);
+            items.forEach(f => eliminarRegistro('financiero', f.id));
+        }
+
+        // 3. ELIMINAR ACTUALIZACIONES (Y SUS LÍNEAS DE PRESUPUESTO)
+        const actualizacionesResp = readAllRows('actualizaciones');
+        if (actualizacionesResp.success && actualizacionesResp.data) {
+            const actualizaciones = actualizacionesResp.data.filter(a => String(a.idComunicado) === comunicadoId);
+
+            // Para cada actualización, eliminar sus líneas de presupuesto
+            if (actualizaciones.length > 0) {
+                const lineasResp = readAllRows('presupuestoLineas');
+                const todasLineas = (lineasResp.success && lineasResp.data) ? lineasResp.data : [];
+
+                actualizaciones.forEach(act => {
+                    const lineasDeActualizacion = todasLineas.filter(l => String(l.idActualizacion) === String(act.id));
+                    lineasDeActualizacion.forEach(l => eliminarRegistro('presupuestoLineas', l.id));
+
+                    // Eliminar la actualización misma
+                    eliminarRegistro('actualizaciones', act.id);
+                });
+            }
+        }
+
+        // 4. ELIMINAR DATOS GENERALES
+        const datosGeneralesResult = buscarPorCampo('datosGenerales', 'idComunicado', comunicadoId);
+        if (datosGeneralesResult.success && datosGeneralesResult.data) {
+            eliminarRegistro('datosGenerales', datosGeneralesResult.data.id);
+        }
+
+        // 5. ELIMINAR COMUNICADO (PADRE)
+        const deleteResp = eliminarRegistro('comunicados', comunicadoId);
+        if (!deleteResp.success) {
+            return propagarRespuestaError(contexto, deleteResp);
+        }
+
+        return {
+            success: true,
+            message: `Comunicado "${comunicado.comunicado}" eliminado correctamente junto con todos sus datos asociados.`
+        };
+
+    } catch (error) {
+        console.error('Error en deleteComunicado:', error);
+        return crearRespuestaError(`Error al eliminar comunicado: ${error.message}`, { source: contexto, error, details: { id } });
+    }
+}

@@ -18,6 +18,9 @@
                     <i class="bi bi-circle-fill text-success me-2" style="font-size: 0.5rem;"></i>
                     <span id="header-status">Activo</span>
                 </span>
+                <button class="btn btn-outline-danger btn-sm" id="btn-eliminar-comunicado" title="Eliminar Comunicado">
+                    <i class="bi bi-trash"></i>
+                </button>
                 <button class="btn btn-primary btn-sm" id="btn-guardar-todo">
                     <i class="bi bi-save"></i> Guardar Cambios
                 </button>
@@ -480,6 +483,41 @@
             <div class="modal-footer justify-content-between">
                 <div class="fw-bold">Total: <span id="modal-total-revision">$0.00</span></div>
                 <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Aceptar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Confirmación Eliminación desde Detalle -->
+<div class="modal fade" id="modalConfirmDeleteDetalle" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 1rem; overflow: hidden;">
+            <div class="modal-header border-0 pb-0 position-absolute w-100 justify-content-end" style="z-index: 10;">
+                <button type="button" class="btn-close m-3" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body p-5 text-center">
+                <div class="mb-4">
+                    <div class="d-inline-flex align-items-center justify-content-center bg-danger bg-opacity-10 rounded-circle text-danger p-3"
+                        style="width: 80px; height: 80px;">
+                        <i class="bi bi-trash3-fill display-5 animate-pulse"></i>
+                    </div>
+                </div>
+                <h3 class="fw-bold text-dark mb-2">¿Eliminar Comunicado?</h3>
+                <p class="text-muted mb-4 fs-6">
+                    Estás a punto de eliminar este comunicado permanentemente.
+                    <br>Esta acción borrará <strong>todos los datos asociados</strong> (Tickets, Finanzas, Equipo).
+                </p>
+
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-danger btn-lg shadow-sm fw-semibold"
+                        id="btn-confirm-delete-detalle">
+                        <i class="bi bi-trash me-2"></i> Sí, eliminar todo
+                    </button>
+                    <button type="button" class="btn btn-light btn-lg text-muted fw-medium mt-2"
+                        data-bs-dismiss="modal">
+                        Cancelar
+                    </button>
+                </div>
             </div>
         </div>
     </div>

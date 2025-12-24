@@ -37,6 +37,20 @@ function previsualizarImportacion(fileContent) {
                 aseguradora: _checkStatus(cache.aseguradoras, 'descripción', h.aseguradora)
             };
 
+            // Enhanced Comunicado Analysis
+            let statusCom = 'NUEVO';
+            // 1. Find Account ID
+            const cta = cache.cuentas.find(c => c.referencia === h.refCta || c.cuenta === h.refCta);
+            if (cta) {
+                // 2. Check strict existence in DB
+                const exists = cache.comunicados.some(c =>
+                    String(c.idReferencia) === String(cta.id) &&
+                    String(c.comunicado) === String(h.comunicadoId)
+                );
+                if (exists) statusCom = 'EXISTE';
+            }
+            analisis.comunicado = { status: statusCom, valor: h.comunicadoId };
+
             return {
                 ref: h.refCta,
                 comunicado: h.comunicadoId,
@@ -357,7 +371,7 @@ function ejecutarImportacion(fileContent) {
                 idComunicado: idComunicado,
                 consecutivo: consecutivo,
                 esOrigen: isOrigen && consecutivo === 1 ? 1 : 0,
-                revision: isOrigen ? 'Origen' : (doc.header.comunicadoId + ' (Imp)'),
+                revision: isOrigen ? 'Origen' : doc.header.tipoRegistro,
                 monto: doc.header.totalPdf,
                 montoCapturado: null,
                 montoSupervisión: (doc.header.totalPdf || 0) * 0.05, // Regla: 5% del Monto (Total PDF)
@@ -702,7 +716,7 @@ function parseImportFile(csvInfo) {
 
     dataRows.forEach(row => {
         const refCta = String(row[idxRef] || '').trim().toUpperCase();
-        const comId = String(row[idxCom] || '').trim().toUpperCase();
+        const comId = String(row[idxCom] || '').split(',')[0].trim().toUpperCase();
         const tipoRegistro = idxTipo > -1 ? String(row[idxTipo] || 'ACTUALIZACION').trim().toUpperCase() : 'ACTUALIZACION';
 
         if (!refCta || !comId) return;
