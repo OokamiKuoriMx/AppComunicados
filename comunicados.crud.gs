@@ -474,7 +474,8 @@ function readAllComunicados() {
             cuentas: { response: readAllRows('cuentas'), essential: true },
             datosGenerales: { response: readAllRows('datosGenerales'), essential: true },
             estados: { response: readAllRows('estados'), essential: false },
-            distritosRiego: { response: readAllRows('distritosRiego'), essential: false }, // Mantenemos aunque no se muestre por si acaso
+            distritosRiego: { response: readAllRows('distritosRiego'), essential: false },
+            siniestros: { response: readAllRows('siniestros'), essential: false }, // Added for Quick View
             actualizaciones: { response: readAllRows('actualizaciones'), essential: false },
             equipo: { response: readAllRows('equipo'), essential: false }
         };
@@ -521,13 +522,15 @@ function readAllComunicados() {
         const cuentasPorId = mapeoPorCampo(datosListas.cuentas || [], 'id');
         const datosGeneralesPorComunicadoId = mapeoPorCampo(datosListas.datosGenerales || [], 'idComunicado');
         const estadosPorId = mapeoPorCampo(datosListas.estados || [], 'id');
-
-        // ya no requerimos distritos/siniestros en el listado, pero se mantienen leídos si se necesitan para filtros futuros.
+        const distritosPorId = mapeoPorCampo(datosListas.distritosRiego || [], 'id');
+        const siniestrosPorId = mapeoPorCampo(datosListas.siniestros || [], 'id');
 
         const todosComunicados = (datosListas.comunicados || []).map(comunicado => {
             const datoGeneral = obtenerDesdeMapa(datosGeneralesPorComunicadoId, comunicado.id) || {};
             const cuenta = obtenerDesdeMapa(cuentasPorId, comunicado.idCuenta) || {};
             const estado = obtenerDesdeMapa(estadosPorId, datoGeneral.idEstado) || {};
+            const distrito = obtenerDesdeMapa(distritosPorId, datoGeneral.idDR) || {};
+            const siniestro = obtenerDesdeMapa(siniestrosPorId, datoGeneral.idSiniestro) || {};
 
             // 1. Calcular Presupuesto Vigente
             const actualizaciones = actualizacionesPorComunicado[comunicado.id] || [];
@@ -564,7 +567,13 @@ function readAllComunicados() {
                 status: comunicado.status ?? '',
                 descripcion: String(datoGeneral.descripcion || ''),
                 fecha: formatDateValue(datoGeneral.fecha),
+                idEstado: parseNumeric(datoGeneral.idEstado), // Required for modal select
                 estado: String(estado.estado || estado.nombre || ''),
+                distrito: String(distrito.distritoRiego || distrito.nombre || ''), // Required for modal input
+                siniestro: String(siniestro.siniestro || siniestro.nombre || ''), // Required for modal input
+                fenomeno: String(siniestro.fenomeno || ''), // Required for modal
+                fondo: String(siniestro.fondo || ''), // Required for modal
+                fi: String(siniestro.fi || ''), // Required for modal
                 contratista: contratistas || 'Sin Asignar',
                 presupuesto: presupuestoVigente,
                 montoSupervision: supervision || 0

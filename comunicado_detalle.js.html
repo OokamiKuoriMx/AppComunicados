@@ -94,6 +94,7 @@
             dom.genAjustador = document.getElementById('gen-ajustador');
             dom.genAseguradora = document.getElementById('gen-aseguradora'); // Nuevo
             dom.genFecha = document.getElementById('gen-fecha');
+            dom.genFechaDocumento = document.getElementById('gen-fecha-documento'); // Nuevo
             dom.genComunicado = document.getElementById('gen-comunicado');
             dom.genDescripcion = document.getElementById('gen-descripcion');
 
@@ -338,7 +339,9 @@
                 dom.genAjustador.value = nombreAjustadorReal;
             }
 
-            dom.genFecha.value = _formatDateISO(d.fecha);
+            // Mapeo corregido por feedback: Fecha de Registro -> fechaAsignacion, Fecha Documento -> fecha (original)
+            dom.genFecha.value = _formatDateISO(d.fechaAsignacion || d.fechaCreacion); // "Fecha de Registro"
+            if (dom.genFechaDocumento) dom.genFechaDocumento.value = _formatDateISO(d.fecha); // "Fecha del Documento"
             dom.genComunicado.value = d.comunicado || '';
             dom.genDescripcion.value = d.descripcion || '';
             if (d.idEstado) dom.genEstado.value = d.idEstado;
@@ -1058,7 +1061,10 @@
             try {
                 const payload = {
                     comunicado: dom.genComunicado.value,
-                    fecha: dom.genFecha.value,
+                    // 'fecha' en DB es la Fecha del Documento
+                    fecha: dom.genFechaDocumento ? dom.genFechaDocumento.value : null,
+                    // 'fechaAsignacion' en DB es la Fecha de Registro
+                    fechaAsignacion: dom.genFecha.value,
                     descripcion: dom.genDescripcion.value,
                     idEstado: dom.genEstado.value,
                     distrito: dom.genDistrito.value,

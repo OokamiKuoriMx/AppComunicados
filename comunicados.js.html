@@ -401,7 +401,12 @@
             catalogs: { estados: [], distritosRiego: [], siniestros: [] },
             loading: false,
             error: null,
-            isEditing: false
+            isEditing: false,
+            filters: {
+                search: '',
+                status: 'all',
+                year: 'all'
+            }
         };
 
         // Referencias al DOM
@@ -539,6 +544,40 @@
 
                 dom.modal.addEventListener('hidden.bs.modal', () => {
                     _toggleEdicion(false); // Resetear al cerrar
+                });
+            }
+
+            // Dashboard & Filters Refs
+            dom.dashboard = document.getElementById('dashboard-container');
+            dom.statTotal = document.getElementById('stat-total');
+            dom.statSinSiniestro = document.getElementById('stat-sin-siniestro');
+            dom.statNuevosSiniestros = document.getElementById('stat-nuevos-siniestros');
+            dom.statMesActual = document.getElementById('stat-mes-actual');
+
+            dom.filterSearch = document.getElementById('filter-search');
+            dom.filterStatus = document.getElementById('filter-status');
+            dom.filterYear = document.getElementById('filter-year');
+            dom.btnClearFilters = document.getElementById('btn-clear-filters');
+
+            // Listeners Filtros
+            if (dom.filterSearch) {
+                dom.filterSearch.addEventListener('input', (e) => _handleFilterChange('search', e.target.value));
+            }
+            if (dom.filterStatus) {
+                dom.filterStatus.addEventListener('change', (e) => _handleFilterChange('status', e.target.value));
+            }
+            if (dom.filterYear) {
+                dom.filterYear.addEventListener('change', (e) => _handleFilterChange('year', e.target.value));
+            }
+            if (dom.btnClearFilters) {
+                dom.btnClearFilters.addEventListener('click', () => {
+                    // Reset inputs
+                    dom.filterSearch.value = '';
+                    dom.filterStatus.value = 'all';
+                    dom.filterYear.value = 'all';
+                    // Reset state
+                    state.filters = { search: '', status: 'all', year: 'all' };
+                    _renderTable();
                 });
             }
         }
@@ -897,6 +936,99 @@
         }
 
         /**
+         * Maneja cambios en los filtros
+         */
+        function _handleFilterChange(key, value) {
+            state.filters[key] = key === 'search' ? value.toLowerCase() : value;
+            _renderTable(); // Re-renderizar tabla con nuevos filtros
+        }
+
+        /**
+         * Filtra los datos según el estado de los filtros
+         */
+        function _filterData() {
+            let data = [...state.comunicados];
+
+            // 1. Filtro Texto (Search)
+            if (state.filters.search) {
+                const term = state.filters.search;
+                data = data.filter(item => {
+                    const combinado = [
+                        item.comunicado,
+                        item.descripcion,
+                        item.contratista,
+                        item.estado,
+                        item.siniestro
+                    ].join(' ').toLowerCase();
+                    return combinado.includes(term);
+                });
+            }
+
+            // 2. Filtro Estado (Status)
+            if (state.filters.status !== 'all') {
+                data = data.filter(item => {
+                    const tieneSiniestro = item.siniestro && item.siniestro.trim() !== '';
+                    if (state.filters.status === 'con_siniestro') return tieneSiniestro;
+                    if (state.filters.status === 'sin_siniestro') return !tieneSiniestro;
+                    return true;
+                });
+            }
+
+            // 3. Filtro Año
+            if (state.filters.year !== 'all') {
+                data = data.filter(item => {
+                    if (!item.fecha) return false;
+                    const f = String(item.fecha); // Esperamos string YYYY-MM-DD o similar
+                    return f.includes(state.filters.year);
+                });
+            }
+
+            return data;
+        }
+
+        /**
+         * Calcula estadísticas para el dashboard
+         */
+        function _calculateStats(data) {
+            if (!dom.dashboard) return;
+
+            // Total
+            const total = data.length;
+
+            // Sin Siniestro (Importantes)
+            const sinSiniestro = data.filter(d => !d.siniestro || d.siniestro.trim() === '').length;
+
+            // Nuevos Siniestros (Lógica simulada: si el contratista o description dicen 'Nuevo' o si status es 'En Proceso'?)
+            // Ajustamos: Contamos siniestros que NO están en catálogo (si tuviéramos esa info en el item) logicamente
+            // Por ahora usaremos "En Proceso" si existiera campo estado, o simplemente "Sin Siniestro" como proxy de atención.
+            // Usemos lógica de fecha para "Nuevos" este mes en otra card.
+            // Para esta card usaremos items con 'estado' vacio o nulo si existe?
+            // Vamos a contar items CON siniestro pero sin Estimación (campo monto supervisión = 0 tal vez?)
+            const nuevosSiniestros = data.filter(d => d.siniestro && (!d.presupuesto || parseFloat(d.presupuesto) === 0)).length;
+
+
+            // Este Mes (Recientes)
+            const hoy = new Date();
+            const mesActual = hoy.getMonth() + 1; // 1-12
+            const anyoActual = hoy.getFullYear();
+            const esteMes = data.filter(d => {
+                const f = new Date(d.fecha); // Asumiendo formato parseable
+                return !isNaN(f) && f.getMonth() + 1 === mesActual && f.getFullYear() === anyoActual;
+            }).length;
+
+            // Render DOM
+            dom.statTotal.textContent = total;
+            dom.statSinSiniestro.textContent = sinSiniestro;
+            dom.statNuevosSiniestros.textContent = nuevosSiniestros;
+            dom.statMesActual.textContent = esteMes;
+
+            // Mostrar el dashboard si hay datos
+            if (total > 0) {
+                dom.dashboard.classList.remove('d-none');
+            }
+        }
+
+        /**
          * Carga los comunicados desde el servidor
          */
         async function _loadComunicados() {
@@ -910,7 +1042,8 @@
 
                 const comunicados = await serverCall('readAllComunicados');
                 state.comunicados = comunicados || [];
-                _renderTable();
+                _calculateStats(state.comunicados); // Actualizar Dashboard
+                _renderTable(); // Render tabla (filtrada)
             } catch (error) {
                 console.error('Error cargando comunicados:', error);
                 state.error = error.message;
@@ -935,10 +1068,13 @@
             }
 
             if (dom.tableContainer) dom.tableContainer.classList.remove('d-none');
-            if (dom.totalBadge) dom.totalBadge.textContent = state.comunicados.length;
+
+            // Actualizar badge total (siempre muestra el total real o el filtrado? Mejor el filtrado para feedback visual)
+            const filteredData = _filterData();
+            if (dom.totalBadge) dom.totalBadge.textContent = filteredData.length;
 
             // Ordenar por fecha descendente (más recientes primero)
-            const comunicadosOrdenados = [...state.comunicados].sort((a, b) => {
+            const comunicadosOrdenados = [...filteredData].sort((a, b) => {
                 const fechaA = String(a.fecha || '');
                 const fechaB = String(b.fecha || '');
                 return fechaB.localeCompare(fechaA);
@@ -985,6 +1121,11 @@
 
             // Asegurar modo lectura al abrir
             _toggleEdicion(false);
+
+            // FIX: Asegurar que se muestra el contenido y se oculta el loader
+            if (dom.modalLoader) dom.modalLoader.classList.add('d-none');
+            if (dom.modalContent) dom.modalContent.classList.remove('d-none');
+            if (dom.modalError) dom.modalError.classList.add('d-none');
 
             if (modalInstance) {
                 modalInstance.show();

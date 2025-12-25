@@ -49,6 +49,115 @@
         </div>
     </div>
 
+    <!-- Dashboard Section -->
+    <div id="dashboard-container" class="col-12 d-none fade-in">
+        <div class="row g-3 mb-4">
+            <!-- Total Card -->
+            <div class="col-12 col-md-6 col-xl-3">
+                <div class="stat-card p-3 h-100" style="--card-border-color: #0d6efd;">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="stat-label mb-1">Total Comunicados</div>
+                            <div class="stat-value" id="stat-total">0</div>
+                            <div class="stat-trend text-muted">
+                                <i class="bi bi-folder2-open"></i> Registros totales
+                            </div>
+                        </div>
+                        <div class="stat-icon bg-primary bg-opacity-10 text-primary">
+                            <i class="bi bi-grid-fill"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Importantes Card -->
+            <div class="col-12 col-md-6 col-xl-3">
+                <div class="stat-card p-3 h-100" style="--card-border-color: #dc3545;">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="stat-label mb-1">Sin Siniestro</div>
+                            <div class="stat-value text-danger" id="stat-sin-siniestro">0</div>
+                            <div class="stat-trend text-danger">
+                                <i class="bi bi-exclamation-circle"></i> Requieren atención
+                            </div>
+                        </div>
+                        <div class="stat-icon bg-danger bg-opacity-10 text-danger">
+                            <i class="bi bi-bell-fill"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- En Proceso Card (Or Siniestros Nuevos) -->
+            <div class="col-12 col-md-6 col-xl-3">
+                <div class="stat-card p-3 h-100" style="--card-border-color: #ffc107;">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="stat-label mb-1">Nuevos Siniestros</div>
+                            <div class="stat-value text-dark" id="stat-nuevos-siniestros">0</div>
+                            <div class="stat-trend text-muted">
+                                <i class="bi bi-stars text-warning"></i> Detectados recientemente
+                            </div>
+                        </div>
+                        <div class="stat-icon bg-warning bg-opacity-10 text-warning">
+                            <i class="bi bi-magic"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recientes Card -->
+            <div class="col-12 col-md-6 col-xl-3">
+                <div class="stat-card p-3 h-100" style="--card-border-color: #198754;">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="stat-label mb-1">Este Mes</div>
+                            <div class="stat-value text-success" id="stat-mes-actual">0</div>
+                            <div class="stat-trend text-success">
+                                <i class="bi bi-graph-up-arrow"></i> Actividad reciente
+                            </div>
+                        </div>
+                        <div class="stat-icon bg-success bg-opacity-10 text-success">
+                            <i class="bi bi-calendar-check mx-auto"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar d-flex flex-wrap gap-3 align-items-center">
+            <div class="flex-grow-1 position-relative search-input-group" style="min-width: 200px;">
+                <div class="input-group">
+                    <span class="input-group-text text-muted"><i class="bi bi-search"></i></span>
+                    <input type="text" id="filter-search" class="form-control"
+                        placeholder="Buscar por referencia, comunicado o descripción...">
+                </div>
+            </div>
+
+            <div style="min-width: 150px;">
+                <select id="filter-status" class="form-select filter-select">
+                    <option value="all">Todos los Estados</option>
+                    <option value="con_siniestro">Con Siniestro</option>
+                    <option value="sin_siniestro">Sin Siniestro</option>
+                </select>
+            </div>
+
+            <div style="min-width: 140px;">
+                <select id="filter-year" class="form-select filter-select">
+                    <option value="all">Todos los Años</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                    <option value="2023">2023</option>
+                </select>
+            </div>
+
+            <button id="btn-clear-filters" class="btn btn-light text-muted border" title="Limpiar filtros">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
+
     <!-- Tabla Principal -->
     <div id="comunicados-table-container" class="col-12 d-none">
         <div class="card border-0 shadow-lg overflow-hidden glass-card">
@@ -77,16 +186,22 @@
 
 <!-- Modal Detalle/Edición Rápida -->
 <div class="modal fade" id="modalDetalleComunicado" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 1rem; overflow: hidden;">
 
             <!-- Modal Header -->
-            <div class="modal-header bg-gradient-primary text-white border-0">
-                <h5 class="modal-title fw-bold">
-                    <i class="bi bi-info-circle me-2"></i>Detalle del Comunicado
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
-                    aria-label="Close"></button>
+            <div class="modal-header bg-white border-bottom py-3">
+                <div class="d-flex align-items-center">
+                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center me-3"
+                        style="width: 40px; height: 40px;">
+                        <i class="bi bi-eye-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-dark mb-0">Vista Rápida</h5>
+                        <small class="text-muted">Detalles generales del comunicado</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
 
             <!-- Modal Loading State -->
@@ -122,24 +237,26 @@
                     </div>
 
                     <hr class="my-4 border-secondary-subtle">
-                    <h6 class="text-primary fw-bold mb-3">Ubicación y Siniestro</h6>
+                    <hr class="my-4 border-secondary-subtle">
+                    <!-- <h6 class="text-primary fw-bold mb-3">Ubicación y Siniestro</h6> -->
 
                     <!-- Fila 3: Estado y Distrito (Combobox Híbrido) -->
                     <div class="row g-3 mb-3">
                         <div class="col-md-6">
-                            <label class="form-label fw-bold small">Estado</label>
-                            <select class="form-select" id="detalle-estado" disabled>
+                            <label class="form-label fw-bold text-muted small text-uppercase">Estado</label>
+                            <select class="form-select bg-light" id="detalle-estado" disabled>
                                 <option value="">Cargando...</option>
                             </select>
                         </div>
                         <div class="col-md-6 position-relative">
-                            <label class="form-label fw-bold small">Distrito de Riego</label>
+                            <label class="form-label fw-bold text-muted small text-uppercase">Distrito de Riego</label>
                             <div class="input-group">
-                                <span class="input-group-text bg-white border-end-0"><i
+                                <span class="input-group-text bg-light border-end-0"><i
                                         class="bi bi-geo-alt text-primary"></i></span>
-                                <input type="text" class="form-control border-start-0 ps-0" id="detalle-distrito"
-                                    placeholder="Buscar o escribir..." autocomplete="off" disabled>
-                                <button class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split"
+                                <input type="text" class="form-control border-start-0 ps-0 bg-light"
+                                    id="detalle-distrito" placeholder="Buscar o escribir..." autocomplete="off"
+                                    disabled>
+                                <button class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split bg-light"
                                     type="button" data-bs-toggle="dropdown" aria-expanded="false" disabled></button>
                                 <ul class="dropdown-menu w-100 shadow" id="dropdown-distrito-list"
                                     style="max-height: 200px; overflow-y: auto;">
@@ -154,13 +271,13 @@
 
                     <!-- Fila 4: Siniestro (Combobox Híbrido) -->
                     <div class="mb-3 position-relative">
-                        <label class="form-label fw-bold small">Siniestro</label>
+                        <label class="form-label fw-bold text-muted small text-uppercase">Siniestro</label>
                         <div class="input-group">
-                            <span class="input-group-text bg-white border-end-0"><i
+                            <span class="input-group-text bg-light border-end-0"><i
                                     class="bi bi-exclamation-octagon text-danger"></i></span>
-                            <input type="text" class="form-control border-start-0 ps-0" id="detalle-siniestro"
+                            <input type="text" class="form-control border-start-0 ps-0 bg-light" id="detalle-siniestro"
                                 placeholder="Buscar o escribir siniestro..." autocomplete="off" disabled>
-                            <button class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split"
+                            <button class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split bg-light"
                                 type="button" data-bs-toggle="dropdown" aria-expanded="false" disabled></button>
                             <ul class="dropdown-menu w-100 shadow" id="dropdown-siniestro-list"
                                 style="max-height: 200px; overflow-y: auto;">
@@ -175,27 +292,28 @@
                     <!-- Fila 5: Detalles del Siniestro (Fenómeno, Fondo, FI) -->
                     <div class="row g-3 bg-light rounded p-3 mx-0 border">
                         <div class="col-md-4">
-                            <label class="form-label small text-muted">Fenómeno</label>
+                            <label class="form-label fw-bold text-muted small text-uppercase">Fenómeno</label>
                             <div class="input-group input-group-sm">
-                                <input type="text" class="form-control" id="detalle-fenomeno" list="datalist-fenomeno"
-                                    disabled>
+                                <input type="text" class="form-control bg-white" id="detalle-fenomeno"
+                                    list="datalist-fenomeno" disabled>
                                 <datalist id="datalist-fenomeno"></datalist>
                             </div>
                             <div id="aviso-nuevo-fenomeno" class="form-text text-warning x-small d-none">Nuevo</div>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small text-muted">Fondo</label>
+                            <label class="form-label fw-bold text-muted small text-uppercase">Fondo</label>
                             <div class="input-group input-group-sm">
-                                <input type="text" class="form-control" id="detalle-fondo" list="datalist-fondo"
-                                    disabled>
+                                <input type="text" class="form-control bg-white" id="detalle-fondo"
+                                    list="datalist-fondo" disabled>
                                 <datalist id="datalist-fondo"></datalist>
                             </div>
                             <div id="aviso-nuevo-fondo" class="form-text text-warning x-small d-none">Nuevo</div>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label small text-muted">F.I.</label>
+                            <label class="form-label fw-bold text-muted small text-uppercase">F.I.</label>
                             <div class="input-group input-group-sm">
-                                <input type="text" class="form-control" id="detalle-fi" list="datalist-fi" disabled>
+                                <input type="text" class="form-control bg-white" id="detalle-fi" list="datalist-fi"
+                                    disabled>
                                 <datalist id="datalist-fi"></datalist>
                             </div>
                             <div id="aviso-nuevo-fi" class="form-text text-warning x-small d-none">Nuevo</div>

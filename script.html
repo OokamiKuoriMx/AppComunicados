@@ -144,16 +144,7 @@
     }
 
     // --- 1.5: Componentes Estáticos ---
-    const Home = {
-        render: () => `
-            <div class="jumbotron mt-4">
-                <h1 class="display-4">Bienvenido al Gestor de Comunicados</h1>
-                <p class="lead">Seleccione una opción del menú para comenzar.</p>
-                <hr class="my-4">
-                <p>Utilice la barra lateral para navegar entre los módulos.</p>
-            </div>
-        `
-    };
+    // Home component moved to dynamic module (dashboard.js.html)
 
     const About = {
         render: () => `
@@ -180,11 +171,16 @@
 
     // --- 1.6: Configuración de Rutas ---
     const staticRoutes = {
-        '#/': Home,
+        // '#/': Home,  <-- Ahora es dinámica
         '#/about': About
     };
 
     const lazyRouteConfigs = {
+        '#/': {
+            script: 'dashboard.js',
+            template: 'home',
+            global: 'Dashboard'
+        },
         '#/cuentas': {
             script: 'cuentas.js',
             template: 'cuentas',
