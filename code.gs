@@ -108,7 +108,10 @@ const TABLE_DEFINITIONS = {
     estados: {
         sheetName: 'Estados',
         primaryField: 'id',
-        headers: ['id', 'estado'],
+        headers: {
+            id: ['id', 'ID'],
+            estado: ['estado', 'Estado', 'ESTADO', 'Nombre', 'Entidad', 'Descripcion']
+        },
         requiredFields: [],
         uniqueFields: []
     },
@@ -116,7 +119,10 @@ const TABLE_DEFINITIONS = {
     distritosRiego: {
         sheetName: 'DistritosRiego',
         primaryField: 'id',
-        headers: ['id', 'distritoRiego'],
+        headers: {
+            id: ['id', 'ID'],
+            distritoRiego: ['distritoRiego', 'Distrito', 'Nombre', 'Descripcion']
+        },
         requiredFields: [],
         uniqueFields: []
     },

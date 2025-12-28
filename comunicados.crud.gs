@@ -284,8 +284,10 @@ function createComunicado(data) {
 }
 
 /**
- * === ELIMINAR CUENTA ===
- * Verifica dependencias y elimina la cuenta solicitada
+ * === ELIMINAR CUENTA (EN CASCADA) ===
+ * Elimina una cuenta y todos sus comunicados asociados.
+ * Cada comunicado se elimina con deleteComunicado, que a su vez
+ * elimina en cascada: Tickets, Equipo, Financiero, Actualizaciones, DatosGenerales.
  */
 function deleteCuenta(id) {
     const contexto = 'deleteCuenta';
@@ -295,24 +297,36 @@ function deleteCuenta(id) {
             return crearRespuestaError('Se requiere el ID de la cuenta', { source: contexto });
         }
 
+        // 1. Validar existencia de la cuenta
         const cuentaResult = buscarPorId('cuentas', cuentaId);
         if (!cuentaResult.success) {
             return propagarRespuestaError(contexto, cuentaResult);
         }
         const cuenta = cuentaResult.data;
 
-        const comunicados = readComunicadosPorCuenta(cuentaId);
-        if (!comunicados.success) {
-            return propagarRespuestaError(contexto, comunicados, { message: 'No se pudo validar si la cuenta tiene comunicados asociados' });
+        // 2. Obtener comunicados asociados
+        const comunicadosResult = readComunicadosPorCuenta(cuentaId);
+        if (!comunicadosResult.success) {
+            return propagarRespuestaError(contexto, comunicadosResult, {
+                message: 'No se pudo obtener los comunicados asociados'
+            });
         }
 
-        if (comunicados.data && comunicados.data.length > 0) {
-            return crearRespuestaError(
-                `La cuenta "${cuenta.cuenta}" tiene ${comunicados.data.length} comunicado(s) asociado(s) y no puede ser eliminada`,
-                { source: contexto }
-            );
+        // 3. Eliminar cada comunicado en cascada
+        const comunicados = comunicadosResult.data || [];
+        let comunicadosEliminados = 0;
+
+        for (const com of comunicados) {
+            const deleteResult = deleteComunicado(com.id);
+            if (!deleteResult.success) {
+                console.warn(`[${contexto}] Error eliminando comunicado ${com.id}:`, deleteResult.message);
+                // Continuar con los demás, no abortar
+            } else {
+                comunicadosEliminados++;
+            }
         }
 
+        // 4. Eliminar la cuenta
         const deleteResponse = eliminarRegistro('cuentas', cuentaId);
         if (!deleteResponse.success) {
             return propagarRespuestaError(contexto, deleteResponse);
@@ -320,7 +334,7 @@ function deleteCuenta(id) {
 
         return {
             success: true,
-            message: `Cuenta "${cuenta.cuenta}" eliminada correctamente`
+            message: `Cuenta "${cuenta.referencia || cuenta.cuenta}" eliminada correctamente junto con ${comunicadosEliminados} comunicado(s).`
         };
 
     } catch (error) {

@@ -16,7 +16,18 @@
             loaderMsg: document.getElementById('loader-msg'),
             previewContainer: document.getElementById('preview-container'),
             previewBody: document.getElementById('preview-body'),
-            previewSummary: document.getElementById('preview-summary')
+            previewSummary: document.getElementById('preview-summary'),
+            // Wizard Stages
+            stage1: document.getElementById('stage-1-upload'),
+            stage3: document.getElementById('confirmation-stage'),
+            stage5: document.getElementById('summary-stage'),
+            // Wizard Elements
+            confirmCount: document.getElementById('confirm-count'),
+            btnStartImport: document.getElementById('btn-start-import'),
+            previewTitle: document.getElementById('preview-title'),
+            summaryTotal: document.getElementById('summary-total'),
+            summarySuccess: document.getElementById('summary-success'),
+            summaryErrors: document.getElementById('summary-errors')
         };
 
         let currentFile = null;
@@ -44,6 +55,11 @@
 
             dom.dropZone.addEventListener('drop', _handleDrop, false);
             dom.fileInput.addEventListener('change', _handleFileSelect, false);
+
+            // Wizard Listeners
+            if (dom.btnStartImport) {
+                dom.btnStartImport.addEventListener('click', startImportFlow);
+            }
         };
 
         const _preventDefaults = (e) => {
@@ -76,7 +92,14 @@
             dom.fileInput.value = '';
             dom.fileInfo.classList.add('d-none');
             dom.btnAnalizar.disabled = true;
-            dom.previewContainer.classList.add('d-none');
+            dom.fileInput.value = '';
+            dom.fileInfo.classList.add('d-none');
+            dom.btnAnalizar.disabled = true;
+
+            // Reset Wizard
+            currentPreviewData = [];
+            currentCsvContent = null;
+            setStage(1);
             dom.previewBody.innerHTML = '';
 
             // Preview additions
@@ -138,6 +161,7 @@
 
                 if (data) {
                     _renderResultados(data);
+                    setStage(2); // Move to Preview Stage
                 } else {
                     throw new Error('La respuesta de previsualización esta vacía.');
                 }
@@ -150,63 +174,184 @@
             }
         };
 
-        const confirmar = async () => {
-            if (!currentCsvContent) return;
+        let currentPreviewData = [];
 
-            _showLoader(true, 'Guardando datos en la base de datos...');
-            dom.btnConfirmar.disabled = true;
+        const setStage = (stage) => {
+            console.log('Wizard Stage set to:', stage);
 
-            try {
-                // PASO 2: Ejecución Real
-                const result = await serverCall('ejecutarImportacion', currentCsvContent);
+            // Hide all stages first
+            if (dom.stage1) dom.stage1.classList.add('d-none');
+            if (dom.previewContainer) dom.previewContainer.classList.add('d-none');
+            if (dom.stage3) dom.stage3.classList.add('d-none');
+            if (dom.stage5) dom.stage5.classList.add('d-none');
 
-                if (result.success) {
-                    if (globalThis.Swal) {
-                        Swal.fire({
-                            icon: 'success',
-                            title: 'Importación Completada',
-                            text: result.message + `\nTotal: ${result.resumen?.totalDocumentos} | Nuevos Siniestros: ${result.resumen?.nuevosSiniestros}`,
-                            confirmButtonColor: '#0d6efd'
-                        });
-                    } else {
-                        alert(`Importación Completada.\n${result.message}`);
-                    }
+            // Redundant legacy element hide just in case
+            if (dom.dropZone && stage !== 1) dom.dropZone.classList.add('d-none');
 
-                    // Recargar tabla principal
-                    if (globalThis.Comunicados && typeof Comunicados.recargar === 'function') {
-                        Comunicados.recargar();
-                    }
-
-                    // Cerrar modal o reiniciar
-                    reset();
-                    const modalEl = document.getElementById('modalImportacion');
-                    const modal = bootstrap.Modal.getInstance(modalEl);
-                    if (modal) modal.hide();
-
+            // Footer starts visible by default, but hide for specific stages
+            if (dom.modalFooter) {
+                if ([3, 4, 5].includes(stage)) {
+                    dom.modalFooter.classList.add('d-none');
                 } else {
-                    alert('Error al guardar: ' + result.message);
-                    dom.btnConfirmar.disabled = false;
+                    dom.modalFooter.classList.remove('d-none');
                 }
-            } catch (error) {
-                console.error(error);
-                alert('Error crítico al guardar: ' + error.message);
-                dom.btnConfirmar.disabled = false;
-            } finally {
-                _showLoader(false);
+            }
+
+            // Show requested stage
+            switch (stage) {
+                case 1:
+                    if (dom.stage1) dom.stage1.classList.remove('d-none');
+                    if (dom.dropZone) dom.dropZone.classList.remove('d-none');
+                    break;
+                case 2:
+                    dom.previewContainer.classList.remove('d-none');
+                    if (dom.previewTitle) dom.previewTitle.innerText = 'Reporte de Procesamiento';
+                    // Activar botones de Stage 2 (Volver, Confirmar)
+                    break;
+                case 3:
+                    dom.stage3.classList.remove('d-none');
+                    break;
+                case 4:
+                    dom.previewContainer.classList.remove('d-none');
+                    if (dom.previewTitle) dom.previewTitle.innerText = 'Importando...';
+                    if (dom.btnConfirmar) dom.btnConfirmar.classList.add('d-none');
+                    break;
+                case 5:
+                    dom.stage5.classList.remove('d-none');
+                    break;
+            }
+        };
+
+        const confirmar = async () => {
+            // Legacy wrapper if called directly, redirects to Wizard Stage 3
+            if (!currentPreviewData || currentPreviewData.length === 0) return;
+
+            // Count valid items
+            const count = currentPreviewData.filter(d => d.esValido && d.status !== 'OMITIDO').length;
+            if (count === 0) { alert('Nada que importar'); return; }
+
+            if (dom.confirmCount) dom.confirmCount.innerText = count;
+            setStage(3);
+        };
+
+        const startImportFlow = async () => {
+            // Actual execution (Stage 4)
+            if (!currentPreviewData || currentPreviewData.length === 0) return;
+
+            // Filtrar solo los que se pueden importar (VALIDOS y NO ERRORES)
+            // Incluimos REEMPLAZAR (Actualizaciones) y NUEVO. OMITIDO se salta.
+            const toImportIndices = currentPreviewData
+                .map((d, i) => ({ data: d, index: i }))
+                .filter(item => item.data.esValido && item.data.status !== 'OMITIDO');
+
+            if (toImportIndices.length === 0) {
+                alert('No hay registros nuevos o modificados para importar.');
+                return;
+            }
+
+            setStage(4); // Switch to Progress View
+
+            // if (!confirm(`Se importarán ${toImportIndices.length} registros uno por uno. ¿Continuar?`)) return;
+
+            dom.btnConfirmar.disabled = true;
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (const item of toImportIndices) {
+                const idx = item.index;
+                let payload = item.data.rawPayload;
+
+                // UI: Spinner
+                _updateRowStatus(idx, 'loading');
+
+                if (!payload) {
+                    console.error(`Row ${idx}: rawPayload is missing`, item.data);
+                    _updateRowStatus(idx, 'error', 'Error inetrno: Datos faltantes');
+                    errorCount++;
+                    continue;
+                }
+
+                try {
+                    // Stringify to ensure safe transmission
+                    const payloadStr = JSON.stringify(payload);
+                    const res = await serverCall('importarUnico', payloadStr);
+
+                    if (res.success) {
+                        console.log(`Row ${idx} Logs:`, res.debugLogs);
+                        _updateRowStatus(idx, 'success', res.message);
+                        successCount++;
+                    } else {
+                        _updateRowStatus(idx, 'error', res.message);
+                        errorCount++;
+                    }
+                } catch (e) {
+                    _updateRowStatus(idx, 'error', e.message);
+                    errorCount++;
+                }
+            }
+
+            // Summary Stage 5
+            if (dom.summaryTotal) dom.summaryTotal.innerText = toImportIndices.length;
+            if (dom.summarySuccess) dom.summarySuccess.innerText = successCount;
+            if (dom.summaryErrors) dom.summaryErrors.innerText = errorCount;
+
+            setStage(5);
+            /*
+            if (globalThis.Swal) {
+                Swal.fire({
+                    icon: errorCount === 0 ? 'success' : 'warning',
+                    title: 'Proceso Finalizado',
+                    text: `Importados: ${successCount}\nFallidos: ${errorCount}`,
+                });
+            } else {
+                alert(`Proceso Finalizado.\nImportados: ${successCount}\nFallidos: ${errorCount}`);
+            }
+            */
+
+            dom.btnConfirmar.disabled = false;
+            // Opcional: Recargar tabla principal si hubo exitos
+            if (successCount > 0 && globalThis.Comunicados && typeof Comunicados.recargar === 'function') {
+                Comunicados.recargar();
+            }
+        };
+
+        const _updateRowStatus = (index, type, msg) => {
+            const el = document.getElementById(`row-status-${index}`);
+            if (!el) return;
+
+            if (type === 'loading') {
+                el.innerHTML = `<div class="spinner-border spinner-border-sm text-primary" role="status"></div>`;
+            } else if (type === 'success') {
+                el.innerHTML = `<i class="bi bi-check-circle-fill text-success fs-5" title="${msg || 'Éxito'}"></i>`;
+            } else if (type === 'error') {
+                el.innerHTML = `<i class="bi bi-x-circle-fill text-danger fs-5" title="${msg || 'Error'}"></i>
+                                <div class="text-danger small mt-1" style="font-size: 0.7em; line-height: 1.1;">${msg || 'Error'}</div>`;
             }
         };
 
         const _renderResultados = (data) => {
-            dom.previewContainer.classList.remove('d-none');
+            // dom.previewContainer.classList.remove('d-none'); // Handled by setStage
             dom.previewBody.innerHTML = '';
 
-            const resumen = data.resumen || {};
             const filas = data.filas || [];
+            currentPreviewData = filas; // Guardar referencia global
+
+            // Ensure Header has Progress Column
+            const theadRow = dom.previewContainer.querySelector('thead tr');
+            if (theadRow && !theadRow.querySelector('.col-progress')) {
+                const th = document.createElement('th');
+                th.className = 'col-progress text-center';
+                th.innerText = 'Progreso';
+                theadRow.appendChild(th);
+            }
+
+            const resumen = data.resumen || {};
 
             dom.previewSummary.innerHTML = `
                 <strong>Total Filas:</strong> ${resumen.total || 0} <span class="mx-2">|</span>
-                <strong>Válidos:</strong> ${resumen.validos || 0} <span class="mx-2">|</span>
-                <strong>Omitidos/Errores:</strong> ${resumen.omitidos || 0}
+                <strong class="text-success">A Importar:</strong> ${resumen.validos || 0} <span class="mx-2">|</span>
+                <strong class="text-secondary">Omitidos:</strong> ${resumen.omitidos || 0} <span class="mx-2">|</span>
+                <strong class="text-danger">Errores:</strong> ${resumen.errores || 0}
             `;
 
             // Mostrar botón Confirmar solo si hay válidos > 0
@@ -214,22 +359,21 @@
                 dom.btnConfirmar.classList.remove('d-none');
                 dom.btnConfirmar.disabled = false;
                 dom.btnConfirmar.onclick = confirmar;
+                dom.btnConfirmar.innerHTML = `<i class="bi bi-cloud-upload me-2"></i>Confirmar Importación (${resumen.validos})`;
             } else {
                 dom.btnConfirmar.classList.add('d-none');
             }
 
-            // Reporte de errores (si tenemos CSV de errores, aunque en preview quizas no generamos el CSV file string aun, 
-            // pero podemos mostrar el aviso visual)
-            if (resumen.omitidos > 0) {
+            // Reporte de errores
+            if (resumen.errores > 0) {
                 dom.errorReportContainer.classList.remove('d-none');
-                dom.errorReportMsg.textContent = `Atención: ${resumen.omitidos} registros tienen problemas y NO se importarán.`;
-                // En preview mode quizas no tenemos el CSV generado, ocultar botón de descarga o manejarlo diferente
-                dom.btnDownloadErrors.classList.add('d-none'); // Ocultar descarga en preview
+                dom.errorReportMsg.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-2"></i>Atención: <strong>${resumen.errores}</strong> registros tienen errores y NO se procesarán.`;
+                dom.btnDownloadErrors.classList.add('d-none');
             } else {
                 dom.errorReportContainer.classList.add('d-none');
             }
 
-            const html = filas.map(d => {
+            const html = filas.map((d, i) => {
                 let badgeClass = 'bg-secondary';
                 let badgeText = 'DESCONOCIDO';
 
@@ -255,11 +399,21 @@
                         analisisBadges.push('<span class="badge bg-warning text-dark ms-1"><i class="bi bi-exclamation-circle me-1"></i>Comunicado Existente</span>');
                     } else if (d.analisis.comunicado?.status === 'NUEVO') {
                         analisisBadges.push('<span class="badge bg-success ms-1">Nuevo Comunicado</span>');
+                    } else if (d.analisis.comunicado?.status === 'REEMPLAZAR') {
+                        analisisBadges.push('<span class="badge bg-primary ms-1"><i class="bi bi-pencil-square me-1"></i>Actualización Detectada</span>');
+                        // Mostrar Cambios
+                        if (d.analisis.comunicado.cambios && d.analisis.comunicado.cambios.length > 0) {
+                            d.analisis.comunicado.cambios.forEach(change => {
+                                analisisBadges.push(`<span class="badge bg-light text-dark border ms-1"><small>${change}</small></span>`);
+                            });
+                        }
+                    } else if (d.analisis.comunicado?.status === 'OMITIDO') {
+                        analisisBadges.push('<span class="badge bg-secondary ms-1"><i class="bi bi-slash-circle me-1"></i>Sin Cambios (Se omitirá)</span>');
                     }
                 }
 
                 return `
-                    <tr>
+                    <tr id="row-${i}">
                         <td class="fw-bold">
                             ${d.ref || '-'}
                             ${analisisBadges.join('')}
@@ -269,7 +423,16 @@
                         <td class="text-end font-monospace">${d.monto ? '$' + parseFloat(d.monto).toLocaleString() : '-'}</td>
                         <td class="text-end font-monospace text-muted small">${d.sumaLineas ? '$' + parseFloat(d.sumaLineas).toLocaleString() : '-'}</td>
                         <td class="text-center">${badgeEstado}</td>
-                        <td class="small text-danger">${d.motivo || ''}</td>
+                        <td class="small ${d.esValido ? 'text-muted' : 'text-danger'}">
+                            ${d.motivo || ''}
+                            ${d.analisis.comunicado.debug ?
+                        `<br><span style="font-size:0.7em; opacity:0.7; font-family:monospace;">
+                                [DBG: CSV="${d.analisis.comunicado.debug.csvEstado}" | RES=${d.analisis.comunicado.debug.resId} | DB=${d.analisis.comunicado.debug.dbId}]
+                                </span>` : ''}
+                        </td>
+                        <td class="text-center" id="row-status-${i}">
+                            ${d.esValido && d.status !== 'OMITIDO' ? '<i class="bi bi-circle text-muted small"></i>' : '-'}
+                        </td>
                     </tr>
                 `;
             }).join('');
@@ -291,12 +454,15 @@
                 dom.loader.classList.remove('d-none');
                 dom.loaderMsg.textContent = msg;
                 dom.btnAnalizar.disabled = true;
-                dom.dropZone.classList.add('d-none');
-                dom.errorReportContainer.classList.add('d-none'); // Hide previous errors
+                // Hide stage 1 content temporarily if needed, or overlay it.
+                // But for now, let's keep it simple. The loader is full width/floating?
+                // In the HTML it is distinct. 
+                // Let's just hide the current stage content if we want a "replacement" loader
+                if (dom.stage1 && !dom.stage1.classList.contains('d-none')) dom.stage1.classList.add('d-none');
             } else {
                 dom.loader.classList.add('d-none');
                 dom.btnAnalizar.disabled = false;
-                dom.dropZone.classList.remove('d-none');
+                // Do NOT unhide stage1 here. setStage() determines what is visible.
             }
         };
 
@@ -324,6 +490,18 @@
             dom.previewContainer = document.getElementById('preview-container');
             dom.previewBody = document.getElementById('preview-body');
             dom.previewSummary = document.getElementById('preview-summary');
+
+            // Wizard Elements Cache
+            dom.stage1 = document.getElementById('stage-1-upload');
+            dom.stage3 = document.getElementById('confirmation-stage');
+            dom.stage5 = document.getElementById('summary-stage');
+            dom.confirmCount = document.getElementById('confirm-count');
+            dom.btnStartImport = document.getElementById('btn-start-import');
+            dom.previewTitle = document.getElementById('preview-title');
+            dom.summaryTotal = document.getElementById('summary-total');
+            dom.summarySuccess = document.getElementById('summary-success');
+            dom.summaryErrors = document.getElementById('summary-errors');
+            dom.modalFooter = document.getElementById('import-modal-footer'); // Cache Footer
 
             // New elements
             dom.errorReportContainer = document.getElementById('error-report-container');
@@ -381,6 +559,7 @@
             render,
             mount,
             init,
+            setStage, // Expose for Back buttons
             reset,
             analizar,
             openModal
@@ -405,8 +584,20 @@
             filters: {
                 search: '',
                 status: 'all',
-                year: 'all'
-            }
+                year: 'all',
+                stateFilter: null // Nuevo filtro para el mapa
+            },
+            filters: {
+                search: '',
+                status: 'all',
+                year: 'all',
+                stateFilter: null // Nuevo filtro para el mapa
+            },
+            sort: {
+                column: 'fecha',
+                direction: 'desc'
+            },
+            viewMode: 'list' // 'list' or 'map'
         };
 
         // Referencias al DOM
@@ -576,11 +767,141 @@
                     dom.filterStatus.value = 'all';
                     dom.filterYear.value = 'all';
                     // Reset state
-                    state.filters = { search: '', status: 'all', year: 'all' };
+                    state.filters = { search: '', status: 'all', year: 'all', stateFilter: null };
                     _renderTable();
                 });
             }
+
+            // Map Toggles & Elements
+            dom.toggleList = document.getElementById('view-list');
+            dom.toggleMap = document.getElementById('view-map');
+            dom.mapContainer = document.getElementById('map-section-container');
+            // dom.svgMap = document.getElementById('svg-map-mexico'); // No longer needed for SVG map
+            // dom.mapTooltip = document.getElementById('map-tooltip'); // No longer needed for SVG map
+
+            if (dom.toggleList) {
+                dom.toggleList.addEventListener('change', () => _switchView('list'));
+            }
+            if (dom.toggleMap) {
+                dom.toggleMap.addEventListener('change', () => _switchView('map'));
+            }
+
+            // Google Charts Integracion
+            if (dom.mapContainer && !document.getElementById('gcharts-loader')) {
+                const script = document.createElement('script');
+                script.id = 'gcharts-loader';
+                script.src = 'https://www.gstatic.com/charts/loader.js';
+                script.onload = () => {
+                    google.charts.load('current', {
+                        'packages': ['geochart'],
+                        // Optional: 'apiKey': 'YOUR_KEY_HERE' if high usage, but usually fine for free tier
+                    });
+                    google.charts.setOnLoadCallback(() => {
+                        state.googleChartsLoaded = true;
+                        console.log('Google Charts loaded.');
+                    });
+                };
+                document.head.appendChild(script);
+            }
         }
+
+        function _switchView(mode) {
+            state.viewMode = mode;
+            if (mode === 'map') {
+                if (dom.tableContainer) dom.tableContainer.classList.add('d-none');
+                if (dom.mapContainer) {
+                    dom.mapContainer.classList.remove('d-none');
+                    _drawMap(); // Draw Map
+                }
+            } else {
+                if (dom.mapContainer) dom.mapContainer.classList.add('d-none');
+                if (dom.tableContainer) dom.tableContainer.classList.remove('d-none');
+            }
+        }
+
+        /**
+         * Dibuja el mapa usando Google Charts
+         */
+        function _drawMap() {
+            const container = document.getElementById('geochart-container');
+            const loader = document.getElementById('map-loader');
+
+            if (!container || !state.googleChartsLoaded || !google.visualization) {
+                if (loader) loader.textContent = 'Cargando librería de mapas...';
+                // Retry if library not ready
+                if (!state.googleChartsLoaded) setTimeout(_drawMap, 500);
+                return;
+            }
+
+            if (loader) loader.classList.add('d-none');
+
+            // 1. Prepare Data
+            const counts = {};
+            state.comunicados.forEach(c => {
+                let nombre = (c.estado || '').trim();
+                // Google Charts expects standard names
+                if (nombre.includes('Veracruz')) nombre = 'Veracruz';
+                if (nombre.includes('Michoacán')) nombre = 'Michoacán';
+                if (nombre.includes('México') && !nombre.includes('Ciudad')) nombre = 'State of Mexico'; // Special case
+                if (nombre.includes('CDMX') || nombre.includes('Ciudad de México')) nombre = 'Mexico City';
+
+                if (nombre) {
+                    counts[nombre] = (counts[nombre] || 0) + 1;
+                }
+            });
+
+            const chartData = [['State', 'Comunicados']];
+            Object.keys(counts).forEach(k => {
+                chartData.push([k, counts[k]]);
+            });
+
+            if (chartData.length === 1) {
+                chartData.push(['Mexico', 0]); // Empty map fallback
+            }
+
+            const data = google.visualization.arrayToDataTable(chartData);
+
+            // 2. Options
+            const options = {
+                region: 'MX', // Mexico
+                resolution: 'provinces',
+                displayMode: 'regions',
+                colorAxis: { colors: ['#cff4fc', '#0d6efd', '#0a58ca'] }, // Light blue to Dark blue
+                backgroundColor: 'transparent',
+                datalessRegionColor: '#f8f9fa',
+                defaultColor: '#f5f5f5',
+                tooltip: { textStyle: { color: '#444' }, showColorCode: true }
+            };
+
+            // 3. Draw
+            const chart = new google.visualization.GeoChart(container);
+
+            // Interaction
+            google.visualization.events.addListener(chart, 'select', () => {
+                const selection = chart.getSelection();
+                if (selection.length > 0) {
+                    const item = selection[0];
+                    if (item.row != null) {
+                        const selectedState = data.getValue(item.row, 0);
+                        console.log('Selected State:', selectedState);
+
+                        // Map Google name back to our filter format
+                        let filterName = selectedState;
+                        if (selectedState === 'State of Mexico') filterName = 'Estado de México';
+                        if (selectedState === 'Mexico City') filterName = 'Ciudad de México';
+
+                        // Filter
+                        state.filters.stateFilter = filterName;
+                        dom.toggleList.click(); // Switch to list
+                        _renderTable();
+                    }
+                }
+            });
+
+            chart.draw(data, options);
+        }
+
+        // Removed old SVG functions _setupMapInteractions, _resetMapActiveState, _updateMapStats
 
         /**
          * Verifica si el valor ingresado es nuevo o existe en el catálogo
@@ -983,6 +1304,15 @@
                 });
             }
 
+            // 4. Filtro Mapa (Estado)
+            if (state.filters.stateFilter) {
+                data = data.filter(item => {
+                    const st = (item.estado || '').toLowerCase();
+                    const filter = state.filters.stateFilter.toLowerCase();
+                    return st.includes(filter) || filter.includes(st);
+                });
+            }
+
             return data;
         }
 
@@ -1043,6 +1373,7 @@
                 const comunicados = await serverCall('readAllComunicados');
                 state.comunicados = comunicados || [];
                 _calculateStats(state.comunicados); // Actualizar Dashboard
+                if (state.viewMode === 'map') _drawMap(); // Redraw if map active
                 _renderTable(); // Render tabla (filtrada)
             } catch (error) {
                 console.error('Error cargando comunicados:', error);
@@ -1051,6 +1382,45 @@
             } finally {
                 state.loading = false;
                 if (dom.loader) dom.loader.classList.add('d-none');
+            }
+        }
+
+        /**
+         * Maneja el cambio de ordenamiento
+         */
+        function _handleSort(column) {
+            if (state.sort.column === column) {
+                // Toggle direction
+                state.sort.direction = state.sort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                // New column, default to asc (except for date maybe? logic implies default asc usually)
+                state.sort.column = column;
+                state.sort.direction = 'asc';
+            }
+            _renderTable();
+        }
+
+        /**
+         * Actualiza los iconos de ordenamiento en la cabecera
+         */
+        function _updateSortIcons() {
+            // Reset all icons
+            const headers = ['descripcion', 'fecha', 'estado', 'contratista', 'presupuesto', 'montoSupervision'];
+            headers.forEach(key => {
+                const icon = document.getElementById(`sort-icon-${key}`);
+                if (icon) {
+                    icon.className = 'bi bi-arrow-down-up small text-muted ms-1'; // Default neutral
+                }
+            });
+
+            // Set active icon
+            const activeIcon = document.getElementById(`sort-icon-${state.sort.column}`);
+            if (activeIcon) {
+                if (state.sort.direction === 'asc') {
+                    activeIcon.className = 'bi bi-arrow-up text-primary ms-1';
+                } else {
+                    activeIcon.className = 'bi bi-arrow-down text-primary ms-1';
+                }
             }
         }
 
@@ -1074,11 +1444,31 @@
             if (dom.totalBadge) dom.totalBadge.textContent = filteredData.length;
 
             // Ordenar por fecha descendente (más recientes primero)
+            const { column, direction } = state.sort;
             const comunicadosOrdenados = [...filteredData].sort((a, b) => {
-                const fechaA = String(a.fecha || '');
-                const fechaB = String(b.fecha || '');
-                return fechaB.localeCompare(fechaA);
+                let valA = a[column];
+                let valB = b[column];
+
+                // Handle null/undefined
+                if (valA == null) valA = '';
+                if (valB == null) valB = '';
+
+                // Numeric sorting for money fields
+                if (['presupuesto', 'montoSupervision'].includes(column)) {
+                    valA = parseFloat(valA) || 0;
+                    valB = parseFloat(valB) || 0;
+                } else {
+                    // String sorting (case insensitive)
+                    valA = String(valA).toLowerCase();
+                    valB = String(valB).toLowerCase();
+                }
+
+                if (valA < valB) return direction === 'asc' ? -1 : 1;
+                if (valA > valB) return direction === 'asc' ? 1 : -1;
+                return 0;
             });
+
+            _updateSortIcons();
 
             const html = comunicadosOrdenados.map(com => `
                 <tr>
@@ -1305,7 +1695,8 @@
             mount,
             abrirModal,
             verDetalle,
-            recargar: _loadComunicados
+            recargar: _loadComunicados,
+            ordenar: _handleSort
         };
 
     })();

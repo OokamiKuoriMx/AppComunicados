@@ -367,4 +367,55 @@
     .filter-select:focus {
         box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.15);
     }
+
+    /* ====================================================================
+       INTERACTIVE MAP STYLES
+       ==================================================================== */
+    .state-path {
+        fill: #e9ecef;
+        stroke: #fff;
+        stroke-width: 1px;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+
+    .state-path:hover {
+        stroke: #333;
+        stroke-width: 2px;
+        filter: url(#glow);
+        transform: translateY(-2px);
+    }
+
+    /* Heatmap Levels */
+    .map-low {
+        fill: #cff4fc !important;
+    }
+
+    .map-medium {
+        fill: #0dcaf0 !important;
+    }
+
+    .map-high {
+        fill: #0d6efd !important;
+    }
+
+    .map-intense {
+        fill: #6610f2 !important;
+    }
+
+    .state-path.active {
+        fill: #ffc107 !important;
+        stroke: #000;
+        stroke-width: 2px;
+    }
+
+    /* Map Switcher Toggle */
+    .btn-check:checked+.btn-outline-primary {
+        background-color: #0d6efd;
+        color: white;
+    }
+
+    .cursor-pointer {
+        cursor: pointer;
+    }
 </style>

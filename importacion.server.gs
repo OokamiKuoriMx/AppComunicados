@@ -39,17 +39,115 @@ function previsualizarImportacion(fileContent) {
 
             // Enhanced Comunicado Analysis
             let statusCom = 'NUEVO';
+            let changes = [];
+            let existingCom = null;
+            let dgActual = null;
+            let resEstadoId = null;
+
             // 1. Find Account ID
             const cta = cache.cuentas.find(c => c.referencia === h.refCta || c.cuenta === h.refCta);
             if (cta) {
                 // 2. Check strict existence in DB
-                const exists = cache.comunicados.some(c =>
+                existingCom = cache.comunicados.find(c =>
                     String(c.idReferencia) === String(cta.id) &&
                     String(c.comunicado) === String(h.comunicadoId)
                 );
-                if (exists) statusCom = 'EXISTE';
+
+                if (existingCom) {
+                    // 3. Deep Compare for Smart Update
+                    dgActual = cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id));
+
+                    if (!dgActual) {
+                        statusCom = 'REEMPLAZAR'; // Existe Com pero no DG (Raro, pero forzamos update/insert DG)
+                    } else {
+                        // Comparacion profunda de campos clave
+                        let hasChanges = false;
+
+                        // Descripcion
+                        if (h.descripcion && normalizarTexto(h.descripcion) !== normalizarTexto(dgActual.descripcion)) {
+                            hasChanges = true;
+                            changes.push('Descripción');
+                        }
+
+                        // Fecha
+                        if (h.fechaDoc) {
+                            const dateCSV = new Date(h.fechaDoc).toISOString().split('T')[0];
+                            const dateDB = dgActual.fecha ? new Date(dgActual.fecha).toISOString().split('T')[0] : '';
+                            if (dateCSV !== dateDB) {
+                                hasChanges = true;
+                                changes.push(`Fecha (${dateDB} -> ${dateCSV})`);
+                            }
+                        }
+
+                        // Edo
+                        resEstadoId = _resolveIdFromCache(cache.estados, h.estado, 'estado');
+                        if (resEstadoId) {
+                            if (String(resEstadoId) !== String(dgActual.idEstado)) {
+                                hasChanges = true;
+                                // Intentar obtener nombre anterior
+                                const edoAnt = cache.estados.find(e => String(e.id) === String(dgActual.idEstado));
+                                changes.push(`Estado (${edoAnt ? edoAnt.estado : '??'} -> ${h.estado})`);
+                            }
+                        } else if (h.estado) {
+                            hasChanges = true;
+                            changes.push(`AVISO: Estado '${h.estado}' no encontrado`);
+                        }
+
+
+                        // Distrito
+                        const idDRNuevo = _resolveIdFromCache(cache.distritosRiego, h.distritoRiego, 'distritoRiego');
+                        if (idDRNuevo) {
+                            if (String(idDRNuevo) !== String(dgActual.idDR)) {
+                                hasChanges = true;
+                                changes.push('Distrito');
+                            }
+                        } else if (h.distritoRiego) {
+                            hasChanges = true;
+                            changes.push(`AVISO: Distrito '${h.distritoRiego}' no encontrado`);
+                        }
+
+                        // Siniestro
+                        const idSiniestroNuevo = _resolveIdFromCache(cache.siniestros, h.refSiniestro, 'siniestro');
+                        if (idSiniestroNuevo) {
+                            if (String(idSiniestroNuevo) !== String(dgActual.idSiniestro)) {
+                                hasChanges = true;
+                                changes.push('Siniestro');
+                            }
+                        } else if (h.refSiniestro) {
+                            hasChanges = true;
+                            changes.push(`AVISO: Siniestro '${h.refSiniestro}' no encontrado`);
+                        }
+
+                        statusCom = hasChanges ? 'REEMPLAZAR' : 'OMITIDO';
+                    }
+                }
             }
-            analisis.comunicado = { status: statusCom, valor: h.comunicadoId };
+
+            // DEBUG: Inject diagnostics
+            const debugInfo = {
+                csvEstado: h.estado,
+                resId: resEstadoId,
+                dbId: (existingCom && cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id))) ?
+                    cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id)).idEstado : '?'
+            };
+
+            analisis.comunicado = { status: statusCom, valor: h.comunicadoId, cambios: changes, debug: debugInfo };
+
+            // Determine Global Status based on Analysis
+            let finalStatus = v.status;
+            let finalMotivo = v.motivo || (v.errores ? v.errores.join(', ') : '');
+
+            if (esValido) {
+                const isComOmitido = statusCom === 'OMITIDO';
+                const isCtaNueva = analisis.cuenta && analisis.cuenta.status === 'NUEVO';
+                const isSinNuevo = analisis.siniestro && analisis.siniestro.status === 'NUEVO';
+                const isDrNuevo = analisis.distrito && analisis.distrito.status === 'NUEVO';
+
+                if (isComOmitido && !isCtaNueva && !isSinNuevo && !isDrNuevo) {
+                    finalStatus = 'OMITIDO';
+                    finalMotivo = 'Registro idéntico a Base de Datos.';
+                }
+            }
 
             return {
                 ref: h.refCta,
@@ -58,17 +156,22 @@ function previsualizarImportacion(fileContent) {
                 fecha: h.fechaDoc ? new Date(h.fechaDoc).toISOString().split('T')[0] : '',
                 monto: h.totalPdf,
                 sumaLineas: v.sumaLineas,
-                status: v.status, // OK, OMITIDO
-                esValido: esValido,
-                motivo: v.motivo || (v.errores ? v.errores.join(', ') : ''),
-                analisis: analisis
+                status: finalStatus, // OK, OMITIDO
+                esValido: esValido, // Keep valid so it counts as "processable" but omitted
+                motivo: finalMotivo,
+                analisis: analisis,
+                rawPayload: { header: h, lineas: doc.lineas } // Data for single import
             };
         });
 
         const resumen = {
             total: previewData.length,
-            validos: previewData.filter(d => d.esValido).length,
-            omitidos: previewData.filter(d => !d.esValido).length
+            // Validos para importar (Válidos y NO Omitidos)
+            validos: previewData.filter(d => d.esValido && d.status !== 'OMITIDO').length,
+            // Omitidos (Válidos pero sin cambios)
+            omitidos: previewData.filter(d => d.esValido && d.status === 'OMITIDO').length,
+            // Errores (No válidos)
+            errores: previewData.filter(d => !d.esValido).length
         };
 
         return {
@@ -112,47 +215,124 @@ function _checkStatus(list, fields, value) {
  * Orquesta la importación completa usando Persistencia Batch.
  * @param {string} fileContent - Contenido de texto del archivo CSV.
  */
+function importarUnico(payload) {
+    const context = 'importarUnico';
+    try {
+        console.log(`[${context}] Raw payload received type: ${typeof payload}`);
+
+        // Robust Parsing: If payload is stringified (to avoid GAS recursive copy issues), parse it.
+        if (typeof payload === 'string') {
+            try {
+                payload = JSON.parse(payload);
+            } catch (jsonErr) {
+                console.warn(`[${context}] Failed to parse string payload:`, jsonErr);
+                // Continue, maybe it was just a string? But likely invalid.
+            }
+        }
+
+        // Debug
+        // console.log(`[${context}] Parsed Payload:`, JSON.stringify(payload)); 
+
+        if (!payload || !payload.header || !payload.lineas) {
+            const keys = payload ? JSON.stringify(Object.keys(payload)) : 'null';
+            const type = typeof payload;
+            console.error(`[${context}] Invalid payload structure. Type: ${type}, Keys: ${keys}`);
+            throw new Error(`Payload inválido. Recibido: ${type}, Llaves: ${keys}`);
+        }
+
+        const item = { header: payload.header, lineas: payload.lineas, validacion: { esValido: true, status: 'OK' } };
+        const loteAgrupado = [item];
+        const cache = _loadCatalogsCache();
+        const result = _procesarBatchInterno(loteAgrupado, cache);
+        console.log(`[${context}] Resultado Batch:`, JSON.stringify(result));
+        return result;
+    } catch (e) {
+        console.error(e);
+        return { success: false, message: e.message + (e.stack ? ' | ' + e.stack : '') };
+    }
+}
+
 function ejecutarImportacion(fileContent) {
     const contexto = 'ejecutarImportacion';
     console.log(`[${contexto}] Iniciando procesamiento Batch...`);
 
     try {
-        // PASO 1: PARSER Y AGRUPADOR
         const loteAgrupado = parseImportFile(fileContent);
-
-        // PASO 2: VALIDACIÓN DE NEGOCIO (In-Memory)
-        // Nota: validarLote lee catalogos para validar.
-        // Optimizacion: Leer catalogos UNA SOLA VEZ aqui y pasarlos.
         const cache = _loadCatalogsCache();
         validarLote(loteAgrupado, cache);
+        return _procesarBatchInterno(loteAgrupado, cache);
+    } catch (error) {
+        console.error(`Error en ${contexto}:`, error);
+        return { success: false, message: `Error fatal: ${error.message}` };
+    }
+}
 
-        // Separar validos y omitidos
+function _procesarBatchInterno(loteAgrupado, cache) {
+    const debugLogs = [];
+    const logBatch = (msg) => {
+        console.log(msg);
+        debugLogs.push(msg);
+    };
+
+    const contexto = '_procesarBatchInterno';
+    try {
+        logBatch(`[${contexto}] Inicio de proceso batch. Total registros: ${loteAgrupado.length}`);
+
+        // Separar válidos y omitidos
         const validos = loteAgrupado.filter(d => d.validacion.esValido && d.validacion.status !== 'OMITIDO');
         const omitidos = loteAgrupado.filter(d => !d.validacion.esValido || d.validacion.status === 'OMITIDO');
-
-        // Ordenar Validos para consistencia (Origen primero)
-        validos.sort((a, b) => {
-            const tipoA = a.header.tipoRegistro;
-            const tipoB = b.header.tipoRegistro;
-            if (tipoA === 'ORIGEN' && tipoB !== 'ORIGEN') return -1;
-            if (tipoA !== 'ORIGEN' && tipoB === 'ORIGEN') return 1;
-            return 0;
-        });
 
         if (validos.length === 0) {
             return _buildResponse(false, 'No hay registros válidos.', { total: loteAgrupado.length, omitidos: omitidos.length }, omitidos, loteAgrupado);
         }
 
         // ==========================================================================================
-        // FASE DE PERSISTENCIA BATCH (ORDEN ESTRICTO)
-        // 1. Ajustadoras/Aseguradoras -> 2. Siniestros/Cuentas -> 3. Comunicados -> 
-        // 4. Datos Generales -> 5. Actualizaciones -> 6. Presupuesto Lineas
+        // FASE 0: CLASIFICACIÓN DE DOCUMENTOS (NUEVOS vs EXISTENTES)
         // ==========================================================================================
+        logBatch(`[${contexto}] FASE 0: Clasificando ${validos.length} documentos...`);
 
-        const counts = { newAsegs: 0, newSins: 0, newCuentas: 0, newComs: 0, newLines: 0 };
+        const docsParaCrear = [];     // Comunicados que NO existen en la BD
+        const docsParaActualizar = []; // Comunicados que SÍ existen en la BD
 
-        // --- 1. AJUSTADORAS (Default) & ASEGURADORAS ---
-        // Identificar Aseguradoras únicas nuevas
+        validos.forEach(doc => {
+            const idReferencia = _resolveIdFromCache(cache.cuentas, doc.header.refCta, ['referencia', 'cuenta']);
+
+            // Si la cuenta no existe aún, se creará más adelante, así que lo marcamos como nuevo
+            if (!idReferencia) {
+                doc._isNew = true;
+                doc._needsCuentaCreation = true;
+                docsParaCrear.push(doc);
+                return;
+            }
+
+            doc._idReferencia = idReferencia;
+
+            // Buscar si el comunicado ya existe
+            const existingCom = cache.comunicados.find(c =>
+                String(c.idReferencia) === String(idReferencia) &&
+                String(c.comunicado) === String(doc.header.comunicadoId)
+            );
+
+            if (existingCom) {
+                doc._isNew = false;
+                doc._existingComId = existingCom.id;
+                docsParaActualizar.push(doc);
+            } else {
+                doc._isNew = true;
+                docsParaCrear.push(doc);
+            }
+        });
+
+        logBatch(`[${contexto}] Clasificación: ${docsParaCrear.length} NUEVOS, ${docsParaActualizar.length} EXISTENTES`);
+
+        // ==========================================================================================
+        // FASE 1: CREAR CATÁLOGOS AUXILIARES (Aseguradoras, Distritos, Ajustadores, Siniestros, Cuentas)
+        // ==========================================================================================
+        logBatch(`[${contexto}] FASE 1: Creando catálogos auxiliares...`);
+
+        const counts = { newAsegs: 0, newSins: 0, newCuentas: 0, newComs: 0, newDG: 0, newActs: 0, newLines: 0, updatedDG: 0 };
+
+        // Aseguradoras
         const newAseguradoras = _extractUnique(validos, 'aseguradora', cache.aseguradoras, 'descripción');
         if (newAseguradoras.length > 0) {
             const res = createBatch('aseguradoras', newAseguradoras.map(desc => ({ descripción: desc })));
@@ -160,28 +340,24 @@ function ejecutarImportacion(fileContent) {
             _updateCache(cache, 'aseguradoras', res.ids, newAseguradoras, 'descripción');
         }
 
-        // --- 1.5. DISTRITOS RIEGO & AJUSTADORES ---
-        // Identificar Distritos únicos nuevos
+        // Distritos
         const newDistritos = _extractUnique(validos, 'distritoRiego', cache.distritosRiego, 'distritoRiego');
         if (newDistritos.length > 0) {
             const res = createBatch('distritosRiego', newDistritos.map(d => ({ distritoRiego: d })));
             _updateCache(cache, 'distritosRiego', res.ids, newDistritos, 'distritoRiego');
         }
 
-        // Identificar Ajustadores únicos nuevos (si vienen en archivo)
+        // Ajustadores
         const newAjustadores = _extractUnique(validos, 'ajustador', cache.ajustadores, 'nombreAjustador');
         if (newAjustadores.length > 0) {
-            // Validar que no esten vacios
-            const validNewAjustadores = newAjustadores.filter(a => a && a.length > 2); // Simple validation
+            const validNewAjustadores = newAjustadores.filter(a => a && a.length > 2);
             if (validNewAjustadores.length > 0) {
                 const res = createBatch('ajustadores', validNewAjustadores.map(a => ({ nombreAjustador: a, nombre: a })));
                 _updateCache(cache, 'ajustadores', res.ids, validNewAjustadores, 'nombreAjustador');
             }
         }
 
-
-        // --- 2. SINIESTROS & CUENTAS ---
-        // 2a. Siniestros (requiere idAseguradora del paso 1)
+        // Siniestros
         const siniestrosMap = _prepareSiniestrosBatch(validos, cache);
         if (siniestrosMap.inserts.length > 0) {
             const res = createBatch('siniestros', siniestrosMap.inserts);
@@ -189,10 +365,8 @@ function ejecutarImportacion(fileContent) {
             _updateCache(cache, 'siniestros', res.ids, siniestrosMap.keys, 'siniestro');
         }
 
-        // 2b. Cuentas (Referencias)
-        // Ajustador Default (Charles Taylor) - Se usa de Fallback
+        // Cuentas
         const idAjustadorDefault = _findIdAjustadorDefault(cache.ajustadores);
-
         const cuentasMap = _prepareCuentasBatch(validos, cache, idAjustadorDefault);
         if (cuentasMap.inserts.length > 0) {
             const res = createBatch('cuentas', cuentasMap.inserts);
@@ -200,204 +374,264 @@ function ejecutarImportacion(fileContent) {
             _updateCache(cache, 'cuentas', res.ids, cuentasMap.keys, ['referencia', 'cuenta']);
         }
 
-        // --- 3. COMUNICADOS (Main Parent) ---
-        // Aqui empieza la construccion relacional.
-        // Necesitamos arrays para cada tabla
+        SpreadsheetApp.flush();
+        logBatch(`[${contexto}] FASE 1 completada. Catálogos creados.`);
+
+        // ==========================================================================================
+        // FASE 2: CREAR COMUNICADOS NUEVOS (y sus DatosGenerales + Actualizaciones)
+        // ==========================================================================================
         const batchComunicados = [];
         const batchDatosGenerales = [];
         const batchActualizaciones = [];
         const batchPresupuestos = [];
 
-        // Mapeo temporal para saber qué doc corresponde a qué índice de batchComunicados
-        // para luego asignar ID real.
-        const comsToInsertMap = []; // { docIndex, data }
+        if (docsParaCrear.length > 0) {
+            logBatch(`[${contexto}] FASE 2: Procesando ${docsParaCrear.length} comunicados NUEVOS...`);
 
-        // Recorrido para construir objetos en memoria
-        validos.forEach((doc, idx) => {
-            const isOrigen = doc.header.tipoRegistro === 'ORIGEN';
+            // 2A: Preparar datos de comunicados únicos para insertar
+            const comUnicosPorKey = new Map(); // Evitar duplicados
 
-            // Resolver IDs usando cache actualizado
-            const idReferencia = _resolveIdFromCache(cache.cuentas, doc.header.refCta, ['referencia', 'cuenta']);
-            const idSiniestro = _resolveIdFromCache(cache.siniestros, doc.header.refSiniestro, 'siniestro');
-            const idEstado = _resolveIdFromCache(cache.estados, doc.header.estado, 'estado'); // Asumiendo estados estáticos
+            docsParaCrear.forEach(doc => {
+                // Resolver idReferencia (ahora que las cuentas ya se crearon)
+                const idReferencia = _resolveIdFromCache(cache.cuentas, doc.header.refCta, ['referencia', 'cuenta']);
+                doc._idReferencia = idReferencia;
 
-            // Lógica Comunicado: Buscar si existe o es nuevo
-            let idComunicado = null;
-            // Buscar en cache (incluyendo los que acabamos de "decidir" crear en este loop? No, porque aun no tienen ID)
-            // Problema: Si en el lote vienen 2 docs para el mismo NUEVO comunicado.
-            // Solucion: Cache local de "Comunicados creados en este lote"
+                if (!idReferencia) {
+                    logBatch(`[${contexto}] WARN: No se pudo resolver cuenta para ${doc.header.refCta}`);
+                    _markError(doc, omitidos, `Cuenta ${doc.header.refCta} no encontrada`);
+                    return;
+                }
 
-            const existingCom = cache.comunicados.find(c =>
-                String(c.idReferencia) === String(idReferencia) &&
-                String(c.comunicado) === String(doc.header.comunicadoId)
-            );
+                const key = `${idReferencia}|${doc.header.comunicadoId}`;
 
-            if (isOrigen && !existingCom) {
-                // ES NUEVO COMUNICADO
-                // Check if we already queued it in this very batch
-                let queuedIdx = comsToInsertMap.findIndex(q =>
-                    String(q.data.idReferencia) === String(idReferencia) &&
-                    String(q.data.comunicado) === String(doc.header.comunicadoId)
-                );
-
-                if (queuedIdx === -1) {
-                    // Queue for creation
-                    const newComData = {
-                        idReferencia: idReferencia,
-                        comunicado: doc.header.comunicadoId,
-                        status: 1
-                    };
-                    batchComunicados.push(newComData);
-                    comsToInsertMap.push({
-                        docRefs: [doc], // Guardamos ref al doc para luego inyectar ID
-                        data: newComData,
-                        isNew: true
+                if (!comUnicosPorKey.has(key)) {
+                    comUnicosPorKey.set(key, {
+                        data: { idReferencia, comunicado: doc.header.comunicadoId, status: 1 },
+                        docs: [doc]
                     });
                 } else {
-                    // Ya está en cola (caso raro: 2 origenes iguales?), agregamos ref
-                    comsToInsertMap[queuedIdx].docRefs.push(doc);
+                    comUnicosPorKey.get(key).docs.push(doc);
                 }
-            } else {
-                // YA EXISTE O ES ACTUALIZACION
-                let tempId = null;
-
-                if (existingCom) {
-                    tempId = existingCom.id;
-                } else {
-                    // Si no existe en BD, verificar si lo estamos creando en ESTE batch (Dependencia Lote)
-                    const queuedItem = comsToInsertMap.find(q =>
-                        String(q.data.idReferencia) === String(idReferencia) &&
-                        String(q.data.comunicado) === String(doc.header.comunicadoId)
-                    );
-
-                    if (queuedItem) {
-                        // VINCULACIÓN EN LOTE:
-                        // Aun no tenemos ID real, pero lo agregamos a la lista de docs que esperan ese ID.
-                        queuedItem.docRefs.push(doc);
-                        // No asignamos _tempIdComunicado aun, se asignará cuando se cree el batch.
-                        return; // OJO: Salimos, la inyección de ID ocurrirá mas abajo (Line 266)
-                    } else {
-                        // Error real: No existe en BD y no se está creando.
-                        _markError(doc, omitidos, "Error Lógico: Comunicado padre no encontrado para Actualización");
-                        return;
-                    }
-                }
-
-                // Si encontramos existente directo:
-                doc._tempIdComunicado = tempId;
-            }
-        });
-
-        // INSERTAR COMUNICADOS BATCH
-        if (batchComunicados.length > 0) {
-            const resComs = createBatch('comunicados', batchComunicados);
-            counts.newComs += resComs.count;
-
-            // Asignar IDs reales a los docs
-            resComs.ids.forEach((realId, i) => {
-                const queuedItem = comsToInsertMap[i]; // batchComunicados[i]
-                queuedItem.docRefs.forEach(d => d._tempIdComunicado = realId); // Inyectar ID
-
-                // Actualizar cache local por si acaso
-                cache.comunicados.push({ id: realId, ...queuedItem.data });
             });
-        }
 
-        // --- 4, 5, 6. HIJOS (Datos Generales, Actualizaciones, Presupuestos) ---
-        // Ahora que todos los validos tienen `_tempIdComunicado`, construimos el resto
+            // 2B: Insertar comunicados nuevos
+            const comUnicosArray = Array.from(comUnicosPorKey.values());
+            if (comUnicosArray.length > 0) {
+                const comsBatchData = comUnicosArray.map(item => item.data);
+                logBatch(`[${contexto}] Insertando ${comsBatchData.length} comunicados nuevos...`);
 
-        validos.forEach(doc => {
-            if (!doc._tempIdComunicado) return; // Si falló algo arriba
+                const resComs = createBatch('comunicados', comsBatchData);
+                counts.newComs += resComs.count;
 
-            const idComunicado = doc._tempIdComunicado;
-            const isOrigen = doc.header.tipoRegistro === 'ORIGEN';
-
-            // 4. Datos Generales (Solo Origen)
-            // Verificar si YA existe DG para este comunicado? 
-            // Si es origen nuevo, seguro no. Si es origen existente (reproceso), quiza duplicamos?
-            // createBatch es ciego. Asumiremos que si es ORIGEN en el CSV, queremos insertar DG.
-            // Ojo: Si el comunicado ya existía, quizas NO queremos duplicar DG.
-            // Regla: Insertar DG solo si acabamos de crear el comunicado (newComs).
-            // O si explicitamente permitimos Multiples DG (no es usual).
-            // Verificamos en cache.datosGenerales si ya existe para este comunicado.
-
-            const existeDG = cache.datosGenerales.some(dg => String(dg.idComunicado) === String(idComunicado));
-
-            if (isOrigen && !existeDG) {
-                const idEstado = _resolveIdFromCache(cache.estados, doc.header.estado, 'estado');
-                const idSiniestro = _resolveIdFromCache(cache.siniestros, doc.header.refSiniestro, 'siniestro');
-                const idDR = _resolveIdFromCache(cache.distritosRiego, doc.header.distritoRiego, 'distritoRiego');
-
-                // Resolver Ajustador para DG: Prioridad File -> Default
-                // Nota: Cuentas ya tiene el Link, pero DG tambien lo pide segun esquema.
-                // Es redundante pero lo llenamos si podemos.
-                let idAjustador = _resolveIdFromCache(cache.ajustadores, doc.header.ajustador, ['nombreAjustador', 'nombre']);
-                if (!idAjustador) idAjustador = _findIdAjustadorDefault(cache.ajustadores);
-
-                batchDatosGenerales.push({
-                    idComunicado: idComunicado,
-                    descripcion: doc.header.descripcion || `${doc.header.refCta}-${doc.header.comunicadoId}`, // Prioridad a columna Descripcion
-                    fecha: doc.header.fechaDoc,
-                    idEstado: idEstado,
-                    idSiniestro: idSiniestro,
-                    idDR: idDR,
-                    idAjustador: idAjustador
+                // Asignar IDs reales a los documentos
+                resComs.ids.forEach((realId, i) => {
+                    const item = comUnicosArray[i];
+                    item.docs.forEach(d => d._newComId = realId);
+                    cache.comunicados.push({ id: realId, ...item.data });
                 });
 
-                // Hack: update cache local to prevent double insert if batch has dupes
-                cache.datosGenerales.push({ idComunicado: idComunicado });
+                SpreadsheetApp.flush();
             }
 
-            // REGLA: Si viene una descripcion EXPLICITA en cualquier renglón (incluso actualización),
-            // actualizamos el registro de Datos Generales que acabamos de preparar (si existe).
-            // Esto permite que el registro L30A "substituya" la descripcion del L30.
-            if (doc.header.descripcion) {
-                const pendingDG = batchDatosGenerales.find(dg => String(dg.idComunicado) === String(idComunicado));
-                if (pendingDG) {
-                    pendingDG.descripcion = doc.header.descripcion;
+            // 2C: Crear DatosGenerales y Actualizaciones para cada documento nuevo
+            docsParaCrear.forEach(doc => {
+                const idComunicado = doc._newComId;
+                if (!idComunicado) {
+                    logBatch(`[${contexto}] SKIP: Doc ${doc.header.refCta}-${doc.header.comunicadoId} sin ID de comunicado`);
+                    return;
                 }
-            }
 
-            // 5. Actualizaciones
-            // Calcular consecutivo. Leemos todas las actualizaciones de este comunicado
-            const actsPrevias = cache.actualizaciones.filter(a => String(a.idComunicado) === String(idComunicado));
-            // Cuantas estamos agregando en ESTE lote para el mismo comunicado?
-            const updatesInBatch = batchActualizaciones.filter(a => String(a.idComunicado) === String(idComunicado));
+                const isOrigen = doc.header.tipoRegistro === 'ORIGEN';
 
-            const consecutivo = actsPrevias.length + updatesInBatch.length + 1;
+                // Crear DatosGenerales (solo una vez por comunicado)
+                const dgExiste = batchDatosGenerales.some(dg => String(dg.idComunicado) === String(idComunicado));
+                if (!dgExiste) {
+                    const idEstado = _resolveIdFromCache(cache.estados, doc.header.estado, 'estado');
+                    const idSiniestro = _resolveIdFromCache(cache.siniestros, doc.header.refSiniestro, 'siniestro');
+                    const idDR = _resolveIdFromCache(cache.distritosRiego, doc.header.distritoRiego, 'distritoRiego');
+                    let idAjustador = _resolveIdFromCache(cache.ajustadores, doc.header.ajustador, ['nombreAjustador', 'nombre']) || idAjustadorDefault;
 
-            // Necesitamos guardar referencia al objeto update para luego asignarle ID a sus lineas
-            const newUpdateObj = {
-                idComunicado: idComunicado,
-                consecutivo: consecutivo,
-                esOrigen: isOrigen && consecutivo === 1 ? 1 : 0,
-                revision: isOrigen ? 'Origen' : doc.header.tipoRegistro,
-                monto: doc.header.totalPdf,
-                montoCapturado: null,
-                montoSupervisión: (doc.header.totalPdf || 0) * 0.05, // Regla: 5% del Monto (Total PDF)
-                fecha: new Date(),
-                // Meta-data para vincular lineas despues
-                _docLineas: doc.lineas
-            };
-            batchActualizaciones.push(newUpdateObj);
-        });
+                    logBatch(`[${contexto}] FASE 2: Creando DG para nuevo ComID ${idComunicado} (Estado: ${doc.header.estado} -> ${idEstado})`);
 
-        // INSERTAR DATOS GENERALES
-        if (batchDatosGenerales.length > 0) {
-            createBatch('datosGenerales', batchDatosGenerales);
+                    batchDatosGenerales.push({
+                        idComunicado: idComunicado,
+                        descripcion: doc.header.descripcion || `${doc.header.refCta}-${doc.header.comunicadoId}`,
+                        fecha: doc.header.fechaDoc,
+                        idEstado: idEstado,
+                        idSiniestro: idSiniestro,
+                        idDR: idDR,
+                        idAjustador: idAjustador
+                    });
+                }
+
+                // Crear Actualizacion
+                const actsPrevias = batchActualizaciones.filter(a => String(a.idComunicado) === String(idComunicado));
+                const consecutivo = actsPrevias.length + 1;
+
+                logBatch(`[${contexto}] FASE 2: Creando Actualizacion #${consecutivo} para ComID ${idComunicado}`);
+
+                batchActualizaciones.push({
+                    idComunicado: idComunicado,
+                    consecutivo: consecutivo,
+                    esOrigen: isOrigen && consecutivo === 1 ? 1 : 0,
+                    revision: isOrigen ? 'Origen' : doc.header.tipoRegistro,
+                    monto: doc.header.totalPdf,
+                    montoCapturado: null,
+                    montoSupervisión: (doc.header.totalPdf || 0) * 0.05,
+                    fecha: new Date(),
+                    _docLineas: doc.lineas
+                });
+            });
+
+            logBatch(`[${contexto}] FASE 2 completada. DG preparados: ${batchDatosGenerales.length}, Acts preparadas: ${batchActualizaciones.length}`);
         }
 
-        // INSERTAR ACTUALIZACIONES
-        if (batchActualizaciones.length > 0) {
-            const resActs = createBatch('actualizaciones', batchActualizaciones);
-            // counts.newActs += resActs.count;
+        // ==========================================================================================
+        // FASE 3: ACTUALIZAR COMUNICADOS EXISTENTES
+        // ==========================================================================================
+        if (docsParaActualizar.length > 0) {
+            logBatch(`[${contexto}] FASE 3: Procesando ${docsParaActualizar.length} comunicados EXISTENTES...`);
 
-            // --- 6. PRESUPUESTO LINEAS ---
-            // Usamos los IDs generados de actualizaciones para crear las lineas
+            // DEBUG: Mostrar qué documentos van a actualizarse
+            docsParaActualizar.forEach((doc, idx) => {
+                logBatch(`[${contexto}] FASE 3 - Doc #${idx + 1}: ${doc.header.refCta}-${doc.header.comunicadoId} | Tipo: ${doc.header.tipoRegistro} | Desc CSV: "${doc.header.descripcion}"`);
+            });
+
+            docsParaActualizar.forEach(doc => {
+                const idComunicado = doc._existingComId;
+                const isOrigen = doc.header.tipoRegistro === 'ORIGEN';
+
+                // Buscar DatosGenerales existente
+                const existingDG = cache.datosGenerales.find(dg => String(dg.idComunicado) === String(idComunicado));
+
+                if (existingDG) {
+                    logBatch(`[${contexto}] FASE 3: Verificando actualización para ComID ${idComunicado} | DG.id: ${existingDG.id} | DG.desc DB: "${existingDG.descripcion}"`);
+
+                    // Comparar campos y preparar updates
+                    const updates = {};
+                    let doUpdate = false;
+
+                    // 1. Estado
+                    const idEstado = _resolveIdFromCache(cache.estados, doc.header.estado, 'estado');
+                    if (idEstado && String(idEstado) !== String(existingDG.idEstado)) {
+                        logBatch(`[${contexto}] -> Estado CAMBIO: ${existingDG.idEstado} -> ${idEstado}`);
+                        updates.idEstado = idEstado;
+                        doUpdate = true;
+                    }
+
+                    // 2. Distrito
+                    const idDR = _resolveIdFromCache(cache.distritosRiego, doc.header.distritoRiego, 'distritoRiego');
+                    if (idDR && String(idDR) !== String(existingDG.idDR)) {
+                        logBatch(`[${contexto}] -> Distrito CAMBIO: ${existingDG.idDR} -> ${idDR}`);
+                        updates.idDR = idDR;
+                        doUpdate = true;
+                    }
+
+                    // 3. Siniestro
+                    const idSiniestro = _resolveIdFromCache(cache.siniestros, doc.header.refSiniestro, 'siniestro');
+                    if (idSiniestro && String(idSiniestro) !== String(existingDG.idSiniestro)) {
+                        updates.idSiniestro = idSiniestro;
+                        doUpdate = true;
+                    }
+
+                    // 4. Fecha
+                    if (doc.header.fechaDoc) {
+                        const dateCSV = new Date(doc.header.fechaDoc).toISOString().split('T')[0];
+                        const dateDB = existingDG.fecha ? new Date(existingDG.fecha).toISOString().split('T')[0] : '';
+                        if (dateCSV !== dateDB) {
+                            updates.fecha = dateCSV;
+                            doUpdate = true;
+                        }
+                    }
+
+                    // 5. Descripción: SIEMPRE actualizar con la nueva (el archivo ya trae la descripción correcta)
+                    if (doc.header.descripcion) {
+                        const descNueva = String(doc.header.descripcion).trim();
+                        const descExistente = String(existingDG.descripcion || '').trim();
+
+                        logBatch(`[${contexto}] DEBUG Descripción - CSV: "${descNueva}" | DB: "${descExistente}"`);
+                        logBatch(`[${contexto}] DEBUG Normalizado - CSV: "${normalizarTexto(descNueva)}" | DB: "${normalizarTexto(descExistente)}"`);
+
+                        // Solo actualizar si es diferente
+                        if (normalizarTexto(descNueva) !== normalizarTexto(descExistente)) {
+                            updates.descripcion = descNueva;
+                            doUpdate = true;
+                            logBatch(`[${contexto}] -> Descripción ACTUALIZADA: "${descExistente}" -> "${descNueva}"`);
+                        } else {
+                            logBatch(`[${contexto}] -> Descripción SIN CAMBIOS (idéntica normalizada)`);
+                        }
+                    } else {
+                        logBatch(`[${contexto}] -> SIN descripción en header del documento`);
+                    }
+
+                    if (doUpdate) {
+                        logBatch(`[${contexto}] -> Ejecutando UPDATE para DG ID ${existingDG.id}: ${JSON.stringify(updates)}`);
+                        try {
+                            const resUpd = updateRow('datosGenerales', existingDG.id, updates);
+                            if (resUpd.success) {
+                                counts.updatedDG++;
+                                logBatch(`[${contexto}] -> UPDATE exitoso para DG ID ${existingDG.id}`);
+                            } else {
+                                logBatch(`[${contexto}] -> UPDATE falló para DG ID ${existingDG.id}: ${resUpd.message}`);
+                            }
+                        } catch (e) {
+                            logBatch(`[${contexto}] -> UPDATE error: ${e.message}`);
+                            _markError(doc, omitidos, `Error al actualizar: ${e.message}`);
+                        }
+                    } else {
+                        logBatch(`[${contexto}] -> Sin cambios detectados para ComID ${idComunicado}`);
+                    }
+                } else {
+                    logBatch(`[${contexto}] WARN: No se encontró DG para ComID existente ${idComunicado}`);
+                }
+
+                // Crear nueva Actualizacion (siempre, para registrar la nueva revisión)
+                const actsPrevias = cache.actualizaciones.filter(a => String(a.idComunicado) === String(idComunicado));
+                const actsEnBatch = batchActualizaciones.filter(a => String(a.idComunicado) === String(idComunicado));
+                const consecutivo = actsPrevias.length + actsEnBatch.length + 1;
+
+                logBatch(`[${contexto}] FASE 3: Creando Actualizacion #${consecutivo} para ComID existente ${idComunicado}`);
+
+                batchActualizaciones.push({
+                    idComunicado: idComunicado,
+                    consecutivo: consecutivo,
+                    esOrigen: 0, // Ya existe, no puede ser origen
+                    revision: doc.header.tipoRegistro || 'Actualización',
+                    monto: doc.header.totalPdf,
+                    montoCapturado: null,
+                    montoSupervisión: (doc.header.totalPdf || 0) * 0.05,
+                    fecha: new Date(),
+                    _docLineas: doc.lineas
+                });
+            });
+
+            SpreadsheetApp.flush();
+            logBatch(`[${contexto}] FASE 3 completada. DG actualizados: ${counts.updatedDG}`);
+        }
+
+        // ==========================================================================================
+        // FASE 4: INSERCIÓN BATCH FINAL (DatosGenerales, Actualizaciones, Presupuestos)
+        // ==========================================================================================
+        logBatch(`[${contexto}] FASE 4: Inserción batch final...`);
+
+        // Insertar DatosGenerales
+        if (batchDatosGenerales.length > 0) {
+            logBatch(`[${contexto}] Insertando ${batchDatosGenerales.length} DatosGenerales...`);
+            createBatch('datosGenerales', batchDatosGenerales);
+            counts.newDG = batchDatosGenerales.length;
+            SpreadsheetApp.flush();
+        }
+
+        // Insertar Actualizaciones
+        if (batchActualizaciones.length > 0) {
+            logBatch(`[${contexto}] Insertando ${batchActualizaciones.length} Actualizaciones...`);
+            const resActs = createBatch('actualizaciones', batchActualizaciones);
+            counts.newActs = resActs.count;
+
+            // Preparar PresupuestoLineas
             resActs.ids.forEach((idActReal, i) => {
                 const updateObj = batchActualizaciones[i];
                 const lines = updateObj._docLineas || [];
-
                 lines.forEach(l => {
                     batchPresupuestos.push({
                         idActualizacion: idActReal,
@@ -408,16 +642,19 @@ function ejecutarImportacion(fileContent) {
                     });
                 });
             });
+            SpreadsheetApp.flush();
         }
 
-        // INSERTAR PRESUPUESTOS
+        // Insertar Presupuestos
         if (batchPresupuestos.length > 0) {
+            logBatch(`[${contexto}] Insertando ${batchPresupuestos.length} líneas de presupuesto...`);
             const resLines = createBatch('presupuestoLineas', batchPresupuestos);
             counts.newLines = resLines.count;
+            SpreadsheetApp.flush();
         }
 
         // FIN DEL PROCESO
-        console.log(`[${contexto}] Batch Completed.`, counts);
+        logBatch(`[${contexto}] Batch Completado. Resumen: ${JSON.stringify(counts)}`);
 
         // Generar CSV Errores
         let csvErrorContent = null;
@@ -425,7 +662,7 @@ function ejecutarImportacion(fileContent) {
             csvErrorContent = _generarCsvErrores(omitidos);
         }
 
-        return _buildResponse(true, 'Importación Batch Completada.', counts, omitidos, loteAgrupado, csvErrorContent);
+        return _buildResponse(true, 'Importación Batch Completada.', counts, omitidos, loteAgrupado, csvErrorContent, debugLogs);
 
     } catch (error) {
         console.error(`Error en ${contexto}:`, error);
@@ -459,25 +696,25 @@ function _updateCache(cache, tableKey, newIds, originalKeys, keyField) {
     newIds.forEach((id, i) => {
         const item = { id: id };
         const val = originalKeys[i];
-        if (Array.isArray(keyField)) {
-            // Caso compuesto (Cuentas: referencia, cuenta)
-            keyField.forEach(k => item[k] = val); // val deberia ser obj? No, simplifiquemos
-            // Para cuentas, _prepareCuentasBatch devuelve keys como los objetos a insertar (menos id).
-            // Ajustamos lógica abajo:
-        } else {
-            item[keyField] = val;
-        }
 
-        // Si originalKeys son los objetos completos, mejor:
-        if (typeof val === 'object') {
+        if (typeof val === 'object' && val !== null) {
+            // Si el valor es un objeto completo (ej. Cuentas), lo mezclamos
             Object.assign(item, val);
         } else {
-            item[keyField] = val;
+            // Si es un valor simple
+            if (Array.isArray(keyField)) {
+                keyField.forEach(k => item[k] = val);
+            } else {
+                item[keyField] = val;
+            }
         }
 
         cache[tableKey].push(item);
     });
 }
+
+
+
 
 function _extractUnique(docs, docField, existingList, dbField) {
     const unique = new Set();
@@ -582,7 +819,7 @@ function _markError(doc, omitidos, msg) {
     omitidos.push(doc);
 }
 
-function _buildResponse(success, msg, counts, omitidos, allDocs, csvContent) {
+function _buildResponse(success, msg, counts, omitidos, allDocs, csvContent, debugLogs) {
     const responseData = {
         success: success,
         message: msg,
@@ -593,6 +830,7 @@ function _buildResponse(success, msg, counts, omitidos, allDocs, csvContent) {
             omitidos: omitidos ? omitidos.length : 0
         },
         csvErrorContent: csvContent,
+        debugLogs: debugLogs,
         detalles: allDocs ? allDocs.map(d => ({
             ref: d.header.refCta,
             comunicado: d.header.comunicadoId,
@@ -695,14 +933,20 @@ function parseImportFile(csvInfo) {
     const idxCom = headers.findIndex(h => h === 'COMUNICADO_ID' || h === 'COMUNICADO'); // Alias
     const idxTipo = headers.indexOf('TIPO_REGISTRO');
     const idxFecha = headers.indexOf('FECHA_DOC');
-    const idxEstado = headers.indexOf('ESTADO');
-    const idxSinRef = headers.indexOf('REF_SINIESTRO');
-    const idxAseg = headers.indexOf('ASEGURADORA');
+
+    // Robust Column Lookup with Aliases
+    const idxEstado = headers.findIndex(h => ['ESTADO', 'ENTIDAD', 'EDO', 'NOMBRE'].includes(h));
+    const idxSinRef = headers.findIndex(h => ['REF_SINIESTRO', 'SINIESTRO_REF', 'SINI_REF'].includes(h));
+    if (idxSinRef === -1 && headers.indexOf('REF_SINIESTRO') > -1) idxSinRef = headers.indexOf('REF_SINIESTRO'); // Fallback
+
+    const idxAseg = headers.findIndex(h => ['ASEGURADORA', 'ASEG'].includes(h));
     const idxFen = headers.indexOf('FENOMENO');
-    const idxFi = headers.indexOf('FECHA_SINIESTRO_FI');
+    const idxFi = headers.map(h => h.replace(/_/g, '')).indexOf('FECHASINIESTROFI'); // Loose match attempt? No, keep it safe
+    // const idxFi = headers.indexOf('FECHA_SINIESTRO_FI'); 
+
     const idxFondo = headers.indexOf('FONDO');
-    const idxDistrito = headers.indexOf('DISTRITO_RIEGO'); // Nuevo
-    const idxAjustador = headers.indexOf('AJUSTADOR'); // Nuevo
+    const idxDistrito = headers.findIndex(h => ['DISTRITO_RIEGO', 'DISTRITO', 'DR', 'NOMBRE_DISTRITO'].includes(h));
+    const idxAjustador = headers.findIndex(h => ['AJUSTADOR', 'NOMBRE_AJUSTADOR', 'AJUST'].includes(h));
     const idxDesc = headers.indexOf('DESCRIPCION'); // Nuevo: Opción explicita usuario
     const idxTotal = headers.findIndex(h => h === 'TOTAL_DOC_PDF' || h === 'TOTAL_DOC_P'); // Alias por si viene cortado
     const idxConcepto = headers.indexOf('CONCEPTO_OBRA');

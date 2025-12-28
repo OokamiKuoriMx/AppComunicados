@@ -493,12 +493,14 @@
             const { dom, modals } = state;
             _setButtonLoading(dom.btnConfirmDelete, true, 'Eliminando...');
             try {
-                await serverCall('deleteRow', 'cuentas', id);
+                // Eliminación en cascada: cuenta + todos sus comunicados y datos asociados
+                await serverCall('deleteCuenta', id);
                 if (idsAreEqual(state.cuentaSeleccionadaId, id)) {
                     state.cuentaSeleccionadaId = null;
+                    state.comunicados = [];
                 }
                 modals.delete?.hide();
-                globalThis.showToast?.('Referencia eliminada.');
+                globalThis.showToast?.('Referencia y datos asociados eliminados.', 'success');
                 await _loadCuentas();
             } catch (error) {
                 alert(`Error al eliminar: ${error.message}`);

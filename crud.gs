@@ -208,6 +208,11 @@ function createBatch(nombreTabla, loteDatos) {
 
         matrixToWrite.push(fila);
         generatedIds.push(datos[def.primaryField]);
+        // Debug first row construction
+        if (i === 0) {
+            console.log(`[createBatch] Sample Row 0 construction. Headers: ${headers.join(', ')}`);
+            console.log(`[createBatch] Sample Row 0 Data: ${JSON.stringify(datos)}`);
+        }
     });
 
     // 4. Escritura Batch (Una sola llamada a API)
@@ -288,27 +293,58 @@ function updateRow(nombreTabla, id, nuevosDatos) {
         });
     }
 
-    const { sheet, headers, rows } = obtenerDatosTabla(def.sheetName);
-    const indiceId = headers.findIndex(h => normalizarTexto(h) === normalizarTexto(def.primaryField));
-    if (indiceId === -1) {
-        return crearRespuestaError('No se encontró la columna ID.', {
+    // OBTENER LA HOJA usando obtenerDatosTabla
+    const tablaData = SpreadsheetApp.getActive().getSheetByName(def.sheetName);
+    const sheet = tablaData;
+    if (!sheet) {
+        return crearRespuestaError(`No se pudo acceder a la hoja "${def.sheetName}" para tabla "${nombreTabla}".`, {
             source: contexto,
-            details: { nombreTabla, sheetName: def.sheetName }
+            details: { nombreTabla }
         });
     }
 
-    const indiceFila = rows.findIndex(fila => fila[indiceId] == id);
+    // REFACTOR: Read raw data to ensure physical row indices are correct (ignoring filters)
+    const rawValues = sheet.getDataRange().getValues();
+    const headers = rawValues[0];
+    const rawRows = rawValues.slice(1);
+
+    // Find index using primary field in raw data
+    // Assuming 'id' is always the first column or finding column index
+    const idColIndex = buscarIndiceColumna(headers, def.primaryField || 'id');
+    const indiceFila = rawRows.findIndex(row => String(row[idColIndex]) === String(id));
+
     if (indiceFila === -1) {
-        return crearRespuestaError(`Registro con ID "${id}" no encontrado para actualizar.`, {
+        return crearRespuestaError(`Registro con ID ${id} no encontrado en tabla "${nombreTabla}"`, {
             source: contexto,
             details: { nombreTabla, id }
         });
     }
 
+    // Use rawRows[indiceFila] as the base 'rows[indiceFila]'
+    const currentRow = rawRows[indiceFila];
+
+    console.log(`[updateRow_Raw] Found ID ${id} at Index ${indiceFila} (Sheet Row ${indiceFila + 2})`);
+
+    console.log(`[updateRow] Update Payload Keys: ${Object.keys(nuevosDatos).join(', ')}`);
+    console.log(`[updateRow] Headers in Sheet: ${headers.join(', ')}`);
+
     const filaActualizada = headers.map((header, i) => {
         const clave = buscarClavePorHeader(def.headers, header);
-        return nuevosDatos[clave] !== undefined ? nuevosDatos[clave] : rows[indiceFila][i];
+        const nuevoValor = nuevosDatos[clave];
+        // Use currentRow from RAW data
+        const valorActual = currentRow[i];
+
+        // Debug specific fields if needed
+        if (clave === 'fecha' || clave === 'descripcion') {
+            console.log(`[updateRow_DBG] Header: "${header}" -> Clave: "${clave}" | NewVal: "${nuevoValor}" vs CurrVal: "${valorActual}"`);
+        }
+
+        return nuevoValor !== undefined ? nuevoValor : valorActual;
     });
+
+    // Check if anything actually changed in the array
+    const hasChanges = filaActualizada.some((val, i) => String(val) !== String(currentRow[i]));
+    console.log(`[updateRow] Computed Row Changes? ${hasChanges}`);
 
     try {
         sheet.getRange(indiceFila + 2, 1, 1, filaActualizada.length).setValues([filaActualizada]);
