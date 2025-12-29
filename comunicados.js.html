@@ -11,7 +11,9 @@
             fileInput: document.getElementById('file-input'),
             fileInfo: document.getElementById('file-info'),
             filenameDisplay: document.getElementById('filename-display'),
+            filenameDisplay: document.getElementById('filename-display'),
             btnAnalizar: document.getElementById('btn-analizar'),
+            btnAnalizarPdf: document.getElementById('btn-analizar-pdf'), // NEW Button
             loader: document.getElementById('import-loader'),
             loaderMsg: document.getElementById('loader-msg'),
             previewContainer: document.getElementById('preview-container'),
@@ -80,12 +82,118 @@
 
         const _handleFiles = (files) => {
             if (files.length > 0) {
-                currentFile = files[0];
-                dom.filenameDisplay.textContent = currentFile.name;
+                // Validación Simple de Tipo
+                const isPdf = files[0].name.toLowerCase().endsWith('.pdf');
+
+                if (isPdf) {
+                    // Modo PDF Batch
+                    dom.filenameDisplay.innerHTML = `<span class="badge bg-danger me-2">PDF</span> ${files.length} archivo(s) seleccionado(s)`;
+                    dom.btnAnalizar.classList.add('d-none'); // Hide CSV button
+                    if (dom.btnAnalizarPdf) dom.btnAnalizarPdf.classList.remove('d-none');
+                    dom.btnAnalizarPdf.disabled = false;
+                    dom.btnAnalizarPdf.onclick = () => _iniciarCargaIA(files);
+                } else {
+                    // Modo Legacy (CSV/Excel)
+                    currentFile = files[0];
+                    dom.filenameDisplay.textContent = currentFile.name;
+                    dom.btnAnalizar.classList.remove('d-none');
+                    if (dom.btnAnalizarPdf) dom.btnAnalizarPdf.classList.add('d-none');
+                    dom.btnAnalizar.disabled = false;
+                }
                 dom.fileInfo.classList.remove('d-none');
-                dom.btnAnalizar.disabled = false;
             }
         };
+
+        // ===============================================
+        //  GESTOR DE COLA IA (BATCH PDF)
+        // ===============================================
+        const _iniciarCargaIA = async (fileList) => {
+            const files = Array.from(fileList);
+            console.log(`Iniciando Carga IA de ${files.length} archivos`);
+
+            _showLoader(true, `Preparando ${files.length} archivos...`);
+
+            const RESULTADOS_BATCH = [];
+            let total = files.length;
+            let procesados = 0;
+
+            for (let i = 0; i < total; i++) {
+                const file = files[i];
+                const msg = `Procesando IA (${i + 1}/${total}): ${file.name}`;
+                dom.loaderMsg.textContent = msg;
+
+                try {
+                    // 1. Leer Archivo a Base64
+                    const base64 = await _readFileAsBase64(file);
+
+                    // 2. Enviar a Backend (IA + Extracción)
+                    const resIA = await serverCall('procesarPdfIA', { content: base64, filename: file.name });
+
+                    if (resIA && resIA.success) {
+                        // 3. Analizar Datos vs DB (Previsualización)
+                        const analisis = await serverCall('analizarExtraccionIA', resIA.data);
+
+                        if (analisis && analisis.success) {
+                            RESULTADOS_BATCH.push(analisis.data);
+                        } else {
+                            // Falló análisis de negocio
+                            RESULTADOS_BATCH.push(_crearErrorRow(file.name, analisis.message));
+                        }
+                    } else {
+                        // Falló IA o OCR
+                        RESULTADOS_BATCH.push(_crearErrorRow(file.name, resIA.message || 'Error desconocido en IA'));
+                    }
+
+                } catch (error) {
+                    console.error('Error file:', file.name, error);
+                    RESULTADOS_BATCH.push(_crearErrorRow(file.name, error.message));
+                }
+
+                procesados++;
+            }
+
+            // FIN: Renderizar Resultados Batch
+            _showLoader(false);
+
+            // Construir estructura compatible con _renderResultados
+            const reportData = {
+                filas: RESULTADOS_BATCH,
+                resumen: {
+                    total: total,
+                    validos: RESULTADOS_BATCH.filter(r => r.esValido && r.status !== 'OMITIDO').length,
+                    omitidos: RESULTADOS_BATCH.filter(r => r.status === 'OMITIDO').length,
+                    errores: RESULTADOS_BATCH.filter(r => !r.esValido).length
+                }
+            };
+
+            _renderResultados(reportData);
+            setStage(2);
+        };
+
+        const _readFileAsBase64 = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    // split ',' to get clean base64
+                    resolve(reader.result.split(',')[1]);
+                };
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        };
+
+        const _crearErrorRow = (filename, errorMsg) => {
+            return {
+                ref: filename, // Usar nombre de archivo como ref temporal
+                comunicado: 'ERROR IMPORT',
+                status: 'ERROR',
+                esValido: false,
+                motivo: errorMsg,
+                analisis: { comunicado: { debug: null } } // Dummy structure
+            };
+        };
+
+
 
         const reset = () => {
             currentFile = null;
@@ -485,6 +593,7 @@
             dom.fileInfo = document.getElementById('file-info');
             dom.filenameDisplay = document.getElementById('filename-display');
             dom.btnAnalizar = document.getElementById('btn-analizar');
+            dom.btnAnalizarPdf = document.getElementById('btn-analizar-pdf'); // Fix: Cache new button
             dom.loader = document.getElementById('import-loader');
             dom.loaderMsg = document.getElementById('loader-msg');
             dom.previewContainer = document.getElementById('preview-container');

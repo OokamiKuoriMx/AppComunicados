@@ -30,9 +30,10 @@
                     <div id="drop-zone"
                         class="upload-zone text-center p-5 border-2 border-dashed rounded bg-white mb-4 transition-hover shadow-sm">
                         <i class="bi bi-cloud-arrow-up text-primary" style="font-size: 3rem;"></i>
-                        <h5 class="mt-3 fw-bold text-muted">Arrastra tu archivo Excel/CSV aquí</h5>
-                        <p class="text-muted small">o haz clic para seleccionar</p>
-                        <input type="file" id="file-input" class="d-none" accept=".csv, .txt, .xlsx, .xls">
+                        <h5 class="mt-3 fw-bold text-muted">Arrastra archivos Excel/CSV o PDFs aquí</h5>
+                        <p class="text-muted small">o haz clic para seleccionar (Soporta Lotes)</p>
+                        <input type="file" id="file-input" class="d-none" accept=".csv, .txt, .xlsx, .xls, .pdf"
+                            multiple>
                         <button class="btn btn-primary mt-2 px-4 rounded-pill"
                             onclick="document.getElementById('file-input').click()">
                             Seleccionar Archivo
@@ -49,6 +50,10 @@
                         <button id="btn-analizar" class="btn btn-lg btn-success shadow px-5 rounded-pill" disabled
                             onclick="Importacion.analizar()">
                             <i class="bi bi-search me-2"></i> Analizar y Procesar
+                        </button>
+                        <button id="btn-analizar-pdf"
+                            class="btn btn-lg btn-warning shadow px-5 rounded-pill ms-2 d-none text-white">
+                            <i class="bi bi-robot me-2"></i> Analizar con IA (Lote)
                         </button>
                     </div>
                 </div>

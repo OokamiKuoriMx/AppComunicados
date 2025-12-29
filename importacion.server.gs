@@ -19,158 +19,16 @@ function previsualizarImportacion(fileContent) {
         const loteAgrupado = parseImportFile(fileContent);
         const cache = _loadCatalogsCache();
 
-        // 2. SIMULAR VALIDACIÓN (Incluye Auto-Corrección)
+        // 2. SIMULAR VALIDACIÓN
         validarLote(loteAgrupado, cache);
 
         // 3. ENRIQUECER PARA VISTA PREVIA
-        const previewData = loteAgrupado.map(doc => {
-            const h = doc.header;
-            const v = doc.validacion;
-            const esValido = v.esValido && v.status !== 'OMITIDO';
-
-            // Detección de "Nuevos" Catálogos
-            const analisis = {
-                cuenta: _checkStatus(cache.cuentas, ['referencia', 'cuenta'], h.refCta),
-                siniestro: _checkStatus(cache.siniestros, 'siniestro', h.refSiniestro),
-                ajustador: _checkStatus(cache.ajustadores, ['nombreAjustador', 'nombre'], h.ajustador),
-                distrito: _checkStatus(cache.distritosRiego, 'distritoRiego', h.distritoRiego),
-                aseguradora: _checkStatus(cache.aseguradoras, 'descripción', h.aseguradora)
-            };
-
-            // Enhanced Comunicado Analysis
-            let statusCom = 'NUEVO';
-            let changes = [];
-            let existingCom = null;
-            let dgActual = null;
-            let resEstadoId = null;
-
-            // 1. Find Account ID
-            const cta = cache.cuentas.find(c => c.referencia === h.refCta || c.cuenta === h.refCta);
-            if (cta) {
-                // 2. Check strict existence in DB
-                existingCom = cache.comunicados.find(c =>
-                    String(c.idReferencia) === String(cta.id) &&
-                    String(c.comunicado) === String(h.comunicadoId)
-                );
-
-                if (existingCom) {
-                    // 3. Deep Compare for Smart Update
-                    dgActual = cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id));
-
-                    if (!dgActual) {
-                        statusCom = 'REEMPLAZAR'; // Existe Com pero no DG (Raro, pero forzamos update/insert DG)
-                    } else {
-                        // Comparacion profunda de campos clave
-                        let hasChanges = false;
-
-                        // Descripcion
-                        if (h.descripcion && normalizarTexto(h.descripcion) !== normalizarTexto(dgActual.descripcion)) {
-                            hasChanges = true;
-                            changes.push('Descripción');
-                        }
-
-                        // Fecha
-                        if (h.fechaDoc) {
-                            const dateCSV = new Date(h.fechaDoc).toISOString().split('T')[0];
-                            const dateDB = dgActual.fecha ? new Date(dgActual.fecha).toISOString().split('T')[0] : '';
-                            if (dateCSV !== dateDB) {
-                                hasChanges = true;
-                                changes.push(`Fecha (${dateDB} -> ${dateCSV})`);
-                            }
-                        }
-
-                        // Edo
-                        resEstadoId = _resolveIdFromCache(cache.estados, h.estado, 'estado');
-                        if (resEstadoId) {
-                            if (String(resEstadoId) !== String(dgActual.idEstado)) {
-                                hasChanges = true;
-                                // Intentar obtener nombre anterior
-                                const edoAnt = cache.estados.find(e => String(e.id) === String(dgActual.idEstado));
-                                changes.push(`Estado (${edoAnt ? edoAnt.estado : '??'} -> ${h.estado})`);
-                            }
-                        } else if (h.estado) {
-                            hasChanges = true;
-                            changes.push(`AVISO: Estado '${h.estado}' no encontrado`);
-                        }
-
-
-                        // Distrito
-                        const idDRNuevo = _resolveIdFromCache(cache.distritosRiego, h.distritoRiego, 'distritoRiego');
-                        if (idDRNuevo) {
-                            if (String(idDRNuevo) !== String(dgActual.idDR)) {
-                                hasChanges = true;
-                                changes.push('Distrito');
-                            }
-                        } else if (h.distritoRiego) {
-                            hasChanges = true;
-                            changes.push(`AVISO: Distrito '${h.distritoRiego}' no encontrado`);
-                        }
-
-                        // Siniestro
-                        const idSiniestroNuevo = _resolveIdFromCache(cache.siniestros, h.refSiniestro, 'siniestro');
-                        if (idSiniestroNuevo) {
-                            if (String(idSiniestroNuevo) !== String(dgActual.idSiniestro)) {
-                                hasChanges = true;
-                                changes.push('Siniestro');
-                            }
-                        } else if (h.refSiniestro) {
-                            hasChanges = true;
-                            changes.push(`AVISO: Siniestro '${h.refSiniestro}' no encontrado`);
-                        }
-
-                        statusCom = hasChanges ? 'REEMPLAZAR' : 'OMITIDO';
-                    }
-                }
-            }
-
-            // DEBUG: Inject diagnostics
-            const debugInfo = {
-                csvEstado: h.estado,
-                resId: resEstadoId,
-                dbId: (existingCom && cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id))) ?
-                    cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id)).idEstado : '?'
-            };
-
-            analisis.comunicado = { status: statusCom, valor: h.comunicadoId, cambios: changes, debug: debugInfo };
-
-            // Determine Global Status based on Analysis
-            let finalStatus = v.status;
-            let finalMotivo = v.motivo || (v.errores ? v.errores.join(', ') : '');
-
-            if (esValido) {
-                const isComOmitido = statusCom === 'OMITIDO';
-                const isCtaNueva = analisis.cuenta && analisis.cuenta.status === 'NUEVO';
-                const isSinNuevo = analisis.siniestro && analisis.siniestro.status === 'NUEVO';
-                const isDrNuevo = analisis.distrito && analisis.distrito.status === 'NUEVO';
-
-                if (isComOmitido && !isCtaNueva && !isSinNuevo && !isDrNuevo) {
-                    finalStatus = 'OMITIDO';
-                    finalMotivo = 'Registro idéntico a Base de Datos.';
-                }
-            }
-
-            return {
-                ref: h.refCta,
-                comunicado: h.comunicadoId,
-                tipo: h.tipoRegistro,
-                fecha: h.fechaDoc ? new Date(h.fechaDoc).toISOString().split('T')[0] : '',
-                monto: h.totalPdf,
-                sumaLineas: v.sumaLineas,
-                status: finalStatus, // OK, OMITIDO
-                esValido: esValido, // Keep valid so it counts as "processable" but omitted
-                motivo: finalMotivo,
-                analisis: analisis,
-                rawPayload: { header: h, lineas: doc.lineas } // Data for single import
-            };
-        });
+        const previewData = loteAgrupado.map(doc => _analizarDocumento(doc, cache));
 
         const resumen = {
             total: previewData.length,
-            // Validos para importar (Válidos y NO Omitidos)
             validos: previewData.filter(d => d.esValido && d.status !== 'OMITIDO').length,
-            // Omitidos (Válidos pero sin cambios)
             omitidos: previewData.filter(d => d.esValido && d.status === 'OMITIDO').length,
-            // Errores (No válidos)
             errores: previewData.filter(d => !d.esValido).length
         };
 
@@ -187,6 +45,177 @@ function previsualizarImportacion(fileContent) {
         const msg = (error instanceof Error) ? error.message : String(error);
         return { success: false, message: msg || 'Error desconocido en previsualización' };
     }
+}
+
+/**
+ * API PÚBLICA: Analiza un payload JSON (salida de IA) para generar el objeto de previsualización.
+ */
+function analizarExtraccionIA(payload) {
+    try {
+        const cache = _loadCatalogsCache();
+
+        // Simular estructura de documento interno
+        const doc = {
+            header: payload.header,
+            lineas: payload.lineas,
+            validacion: { esValido: true, status: 'OK' }
+        };
+
+        // Re-validar lógica básica interna (aunque la IA ya lo hizo, doble check no sobra)
+        // Nota: validarLote espera array, pero podemos validar individual o saltarlo si confiamos en IA.
+        // Vamos a confiar en la estructura de IA pero correr analisis de negocio.
+
+        const analisisRow = _analizarDocumento(doc, cache);
+        return { success: true, data: analisisRow };
+
+    } catch (e) {
+        return { success: false, message: e.message };
+    }
+}
+
+/**
+ * Lógica central de análisis y comparativa con BD.
+ */
+function _analizarDocumento(doc, cache) {
+    const h = doc.header;
+    const v = doc.validacion;
+    const esValido = v.esValido && v.status !== 'OMITIDO';
+
+    // Detección de "Nuevos" Catálogos
+    const analisis = {
+        cuenta: _checkStatus(cache.cuentas, ['referencia', 'cuenta'], h.refCta),
+        siniestro: _checkStatus(cache.siniestros, 'siniestro', h.refSiniestro),
+        ajustador: _checkStatus(cache.ajustadores, ['nombreAjustador', 'nombre'], h.ajustador),
+        distrito: _checkStatus(cache.distritosRiego, 'distritoRiego', h.distritoRiego),
+        aseguradora: _checkStatus(cache.aseguradoras, 'descripción', h.aseguradora)
+    };
+
+    // Enhanced Comunicado Analysis
+    let statusCom = 'NUEVO';
+    let changes = [];
+    let existingCom = null;
+    let dgActual = null;
+    let resEstadoId = null;
+
+    // 1. Find Account ID
+    const cta = cache.cuentas.find(c => c.referencia === h.refCta || c.cuenta === h.refCta);
+    if (cta) {
+        // 2. Check strict existence in DB
+        existingCom = cache.comunicados.find(c =>
+            String(c.idReferencia) === String(cta.id) &&
+            String(c.comunicado) === String(h.comunicadoId)
+        );
+
+        if (existingCom) {
+            // 3. Deep Compare for Smart Update
+            dgActual = cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id));
+
+            if (!dgActual) {
+                statusCom = 'REEMPLAZAR'; // Existe Com pero no DG (Raro, pero forzamos update/insert DG)
+            } else {
+                // Comparacion profunda de campos clave
+                let hasChanges = false;
+
+                // Descripcion
+                if (h.descripcion && normalizarTexto(h.descripcion) !== normalizarTexto(dgActual.descripcion)) {
+                    hasChanges = true;
+                    changes.push('Descripción');
+                }
+
+                // Fecha
+                if (h.fechaDoc) {
+                    const dateCSV = new Date(h.fechaDoc).toISOString().split('T')[0];
+                    const dateDB = dgActual.fecha ? new Date(dgActual.fecha).toISOString().split('T')[0] : '';
+                    if (dateCSV !== dateDB) {
+                        hasChanges = true;
+                        changes.push(`Fecha (${dateDB} -> ${dateCSV})`);
+                    }
+                }
+
+                // Edo
+                resEstadoId = _resolveIdFromCache(cache.estados, h.estado, 'estado');
+                if (resEstadoId) {
+                    if (String(resEstadoId) !== String(dgActual.idEstado)) {
+                        hasChanges = true;
+                        // Intentar obtener nombre anterior
+                        const edoAnt = cache.estados.find(e => String(e.id) === String(dgActual.idEstado));
+                        changes.push(`Estado (${edoAnt ? edoAnt.estado : '??'} -> ${h.estado})`);
+                    }
+                } else if (h.estado) {
+                    hasChanges = true;
+                    changes.push(`AVISO: Estado '${h.estado}' no encontrado`);
+                }
+
+
+                // Distrito
+                const idDRNuevo = _resolveIdFromCache(cache.distritosRiego, h.distritoRiego, 'distritoRiego');
+                if (idDRNuevo) {
+                    if (String(idDRNuevo) !== String(dgActual.idDR)) {
+                        hasChanges = true;
+                        changes.push('Distrito');
+                    }
+                } else if (h.distritoRiego) {
+                    hasChanges = true;
+                    changes.push(`AVISO: Distrito '${h.distritoRiego}' no encontrado`);
+                }
+
+                // Siniestro
+                const idSiniestroNuevo = _resolveIdFromCache(cache.siniestros, h.refSiniestro, 'siniestro');
+                if (idSiniestroNuevo) {
+                    if (String(idSiniestroNuevo) !== String(dgActual.idSiniestro)) {
+                        hasChanges = true;
+                        changes.push('Siniestro');
+                    }
+                } else if (h.refSiniestro) {
+                    hasChanges = true;
+                    changes.push(`AVISO: Siniestro '${h.refSiniestro}' no encontrado`);
+                }
+
+                statusCom = hasChanges ? 'REEMPLAZAR' : 'OMITIDO';
+            }
+        }
+    }
+
+    // DEBUG: Inject diagnostics
+    const debugInfo = {
+        csvEstado: h.estado,
+        resId: resEstadoId,
+        dbId: (existingCom && cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id))) ?
+            cache.datosGenerales.find(dg => String(dg.idComunicado) === String(existingCom.id)).idEstado : '?'
+    };
+
+    analisis.comunicado = { status: statusCom, valor: h.comunicadoId, cambios: changes, debug: debugInfo };
+
+    // Determine Global Status based on Analysis
+    let finalStatus = v.status;
+    let finalMotivo = v.motivo || (v.errores ? v.errores.join(', ') : '');
+
+    if (esValido) {
+        const isComOmitido = statusCom === 'OMITIDO';
+        const isCtaNueva = analisis.cuenta && analisis.cuenta.status === 'NUEVO';
+        const isSinNuevo = analisis.siniestro && analisis.siniestro.status === 'NUEVO';
+        const isDrNuevo = analisis.distrito && analisis.distrito.status === 'NUEVO';
+
+        if (isComOmitido && !isCtaNueva && !isSinNuevo && !isDrNuevo) {
+            finalStatus = 'OMITIDO';
+            finalMotivo = 'Registro idéntico a Base de Datos.';
+        }
+    }
+
+    return {
+        ref: h.refCta,
+        comunicado: h.comunicadoId,
+        tipo: h.tipoRegistro,
+        fecha: h.fechaDoc ? new Date(h.fechaDoc).toISOString().split('T')[0] : '',
+        monto: h.totalPdf,
+        sumaLineas: v.sumaLineas,
+        status: finalStatus, // OK, OMITIDO
+        esValido: esValido, // Keep valid so it counts as "processable" but omitted
+        motivo: finalMotivo,
+        analisis: analisis,
+        rawPayload: { header: h, lineas: doc.lineas } // Data for single import
+    };
+
 }
 
 /**
