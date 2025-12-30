@@ -198,6 +198,11 @@
         function _bindEvents() {
             dom.btnVolver?.addEventListener('click', () => location.hash = '#/comunicados');
             dom.btnGuardar?.addEventListener('click', _guardarTodo);
+
+            // Delete Handlers (Fix)
+            dom.btnEliminar?.addEventListener('click', _handleDeleteClick);
+            dom.btnConfirmDelete?.addEventListener('click', _confirmDelete);
+
             dom.presupuesto.btnAdd?.addEventListener('click', _addActualizacionPresupuesto);
             dom.financiero.btnAdd?.addEventListener('click', _addEstimacion);
             dom.equipo.btnAddContratista?.addEventListener('click', () => _addEquipo('contratista'));

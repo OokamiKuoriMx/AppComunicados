@@ -439,5 +439,36 @@
 </style>
 
 
+<!-- Modal Confirmación Eliminación (Listado) -->
+<div class="modal fade" id="modalConfirmDeleteListado" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 1rem; overflow: hidden;">
+            <div class="modal-body p-5 text-center">
+                <div class="mb-4">
+                    <div class="d-inline-flex align-items-center justify-content-center bg-danger bg-opacity-10 rounded-circle text-danger p-3"
+                        style="width: 80px; height: 80px;">
+                        <i class="bi bi-trash3-fill display-5 animate-pulse"></i>
+                    </div>
+                </div>
+                <h3 class="fw-bold text-dark mb-2">¿Eliminar Comunicado?</h3>
+                <p class="text-muted mb-4 fs-6">
+                    Esta acción es irreversible y borrará <strong>todos los datos asociados</strong>.
+                </p>
+
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-danger btn-lg shadow-sm fw-semibold"
+                        id="btn-confirm-delete-list">
+                        <i class="bi bi-trash me-2"></i> Sí, eliminar registro
+                    </button>
+                    <button type="button" class="btn btn-light btn-lg text-muted fw-medium mt-2"
+                        data-bs-dismiss="modal">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- MODAL DE IMPORTACIÓN INTELIGENTE -->
 <?!= include('importacion_modal') ?>

@@ -127,21 +127,51 @@
                     const base64 = await _readFileAsBase64(file);
 
                     // 2. Enviar a Backend (IA + Extracción)
-                    const resIA = await serverCall('procesarPdfIA', { content: base64, filename: file.name });
+                    let resIA = await serverCall('procesarPdfIA', { content: base64, filename: file.name });
 
-                    if (resIA && resIA.success) {
+                    console.log('DEBUG resIA', resIA);
+
+                    // Robustez: Si llega como string, parsearlo
+                    if (typeof resIA === 'string') {
+                        try {
+                            resIA = JSON.parse(resIA);
+                            console.log('DEBUG resIA parsed:', resIA);
+                        } catch (e) {
+                            console.error('Error parseando resIA:', e);
+                        }
+                    }
+
+                    if (resIA && (resIA.success || resIA.header)) {
+                        // Adaptador: Si serverCall devolvió la data directa (sin wrapper success), úsala.
+                        const datosIA = resIA.success ? resIA.data : resIA;
+
                         // 3. Analizar Datos vs DB (Previsualización)
-                        const analisis = await serverCall('analizarExtraccionIA', resIA.data);
+                        const analisis = await serverCall('analizarExtraccionIA', datosIA);
 
-                        if (analisis && analisis.success) {
-                            RESULTADOS_BATCH.push(analisis.data);
+                        console.log('DEBUG analisis', analisis);
+
+                        // Lógica flexible: manejar tanto respuesta empaquetada como desempaquetada
+                        let rowData = null;
+
+                        if (analisis) {
+                            if (analisis.success && analisis.data) {
+                                // Caso empaquetado: { success: true, data: {...} }
+                                rowData = analisis.data;
+                            } else if (analisis.esValido !== undefined || analisis.status) {
+                                // Caso desempaquetado: El objeto ya es la fila de datos (tiene esValido/status)
+                                rowData = analisis;
+                            }
+                        }
+
+                        if (rowData) {
+                            RESULTADOS_BATCH.push(rowData);
                         } else {
                             // Falló análisis de negocio
-                            RESULTADOS_BATCH.push(_crearErrorRow(file.name, analisis.message));
+                            RESULTADOS_BATCH.push(_crearErrorRow(file.name, (analisis && analisis.message) ? analisis.message : 'Error en análisis (Datos inválidos)'));
                         }
                     } else {
                         // Falló IA o OCR
-                        RESULTADOS_BATCH.push(_crearErrorRow(file.name, resIA.message || 'Error desconocido en IA'));
+                        RESULTADOS_BATCH.push(_crearErrorRow(file.name, (resIA && resIA.message) ? resIA.message : 'Error interno: Respuesta IA inválida'));
                     }
 
                 } catch (error) {
@@ -488,6 +518,9 @@
                 if (d.status === 'OMITIDO') {
                     badgeClass = 'bg-warning text-dark';
                     badgeText = '<i class="bi bi-exclamation-triangle me-1"></i>OMITIDO';
+                } else if (d.status === 'ERROR' || !d.esValido) {
+                    badgeClass = 'bg-danger';
+                    badgeText = '<i class="bi bi-x-circle me-1"></i>ERROR';
                 } else {
                     badgeClass = 'bg-success';
                     badgeText = '<i class="bi bi-check-circle me-1"></i>VÁLIDO';
@@ -498,15 +531,19 @@
                 // Analisis de entidades nuevas
                 const analisisBadges = [];
                 if (d.analisis) {
-                    if (d.analisis.cuenta.status === 'NUEVO') analisisBadges.push('<span class="badge bg-info text-dark ms-1">Nueva Cuenta</span>');
-                    if (d.analisis.siniestro.status === 'NUEVO') analisisBadges.push('<span class="badge bg-purple ms-1" style="background-color: #6f42c1;">Nuevo Siniestro</span>');
-                    if (d.analisis.distrito.status === 'NUEVO') analisisBadges.push('<span class="badge bg-info text-dark ms-1">Nuevo DR</span>');
+                    if (d.analisis.cuenta?.status === 'NUEVO') analisisBadges.push('<span class="badge bg-info text-dark ms-1">Nueva Cuenta</span>');
+                    if (d.analisis.siniestro?.status === 'NUEVO') analisisBadges.push('<span class="badge bg-purple ms-1" style="background-color: #6f42c1;">Nuevo Siniestro</span>');
+                    if (d.analisis.distrito?.status === 'NUEVO') analisisBadges.push('<span class="badge bg-info text-dark ms-1">Nuevo DR</span>');
 
                     // Comunicado Status
                     if (d.analisis.comunicado?.status === 'EXISTE') {
                         analisisBadges.push('<span class="badge bg-warning text-dark ms-1"><i class="bi bi-exclamation-circle me-1"></i>Comunicado Existente</span>');
                     } else if (d.analisis.comunicado?.status === 'NUEVO') {
                         analisisBadges.push('<span class="badge bg-success ms-1">Nuevo Comunicado</span>');
+                    } else if (d.analisis.comunicado?.status === 'ACTUALIZACION') {
+                        analisisBadges.push('<span class="badge bg-info text-dark ms-1"><i class="bi bi-arrow-up-circle me-1"></i>Actualización</span>');
+                    } else if (d.analisis.comunicado?.status === 'DUPLICADO_CONTENIDO') {
+                        analisisBadges.push('<span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle me-1"></i>Posible Duplicado (Monto)</span>');
                     } else if (d.analisis.comunicado?.status === 'REEMPLAZAR') {
                         analisisBadges.push('<span class="badge bg-primary ms-1"><i class="bi bi-pencil-square me-1"></i>Actualización Detectada</span>');
                         // Mostrar Cambios
@@ -858,6 +895,17 @@
             dom.filterStatus = document.getElementById('filter-status');
             dom.filterYear = document.getElementById('filter-year');
             dom.btnClearFilters = document.getElementById('btn-clear-filters');
+
+            // Delete Modal Elements
+            dom.modalDeleteList = document.getElementById('modalConfirmDeleteListado');
+            dom.btnConfirmDeleteList = document.getElementById('btn-confirm-delete-list');
+
+            if (dom.btnConfirmDeleteList) {
+                dom.btnConfirmDeleteList.addEventListener('click', _handleDeleteConfirm);
+            }
+            if (dom.modalDeleteList && typeof bootstrap !== 'undefined') {
+                dom.modalInstanceDelete = new bootstrap.Modal(dom.modalDeleteList);
+            }
 
             // Listeners Filtros
             if (dom.filterSearch) {
@@ -1597,6 +1645,9 @@
                         <button class="btn btn-sm btn-primary" onclick="Comunicados.verDetalle(${com.id || ''})" title="Gestión completa">
                             <i class="bi bi-gear-fill"></i> Gestión
                         </button>
+                        <button class="btn btn-sm btn-outline-danger ms-1" onclick="Comunicados.confirmarEliminar(${com.id || ''})" title="Eliminar">
+                            <i class="bi bi-trash"></i>
+                        </button>
                     </td>
                 </tr>
             `).join('');
@@ -1776,6 +1827,71 @@
         }
 
         /**
+         * Lógica de Eliminación (Listado)
+         */
+        let itemsToDeleteId = null;
+
+        function confirmarEliminar(id) {
+            console.log('Solicitud de eliminación para:', id);
+            if (!id) return;
+            itemsToDeleteId = id;
+
+            if (dom.modalInstanceDelete) {
+                dom.modalInstanceDelete.show();
+            } else {
+                // Fallback
+                if (confirm('¿Confirma que desea eliminar este comunicado y TODOS sus datos asociados?\nEsta acción no se puede deshacer.')) {
+                    _handleDeleteConfirm();
+                }
+            }
+        }
+
+        async function _handleDeleteConfirm() {
+            if (!itemsToDeleteId) return;
+
+            const btn = dom.btnConfirmDeleteList;
+            const originalText = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Eliminando...';
+            }
+
+            try {
+                const res = await serverCall('deleteComunicado', itemsToDeleteId);
+                console.log('Delete result:', res);
+
+                if (dom.modalInstanceDelete) dom.modalInstanceDelete.hide();
+
+                // Mostrar éxito
+                const swal = globalThis.Swal;
+                if (swal) {
+                    swal.fire({
+                        icon: 'success',
+                        title: 'Eliminado',
+                        text: 'El comunicado y todos sus datos han sido eliminados.',
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
+                } else {
+                    alert('Comunicado eliminado correctamente.');
+                }
+
+                // Recargar tabla
+                _loadComunicados();
+
+            } catch (error) {
+                console.error('Error eliminando:', error);
+                alert('Error al eliminar: ' + error.message);
+            } finally {
+                itemsToDeleteId = null;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText || 'Eliminar';
+                }
+            }
+        }
+
+        /**
          * Función de inicialización principal
          */
         const init = async (container) => {
@@ -1804,6 +1920,7 @@
             mount,
             abrirModal,
             verDetalle,
+            confirmarEliminar,
             recargar: _loadComunicados,
             ordenar: _handleSort
         };
