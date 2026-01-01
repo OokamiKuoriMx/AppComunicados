@@ -289,3 +289,99 @@ function getTemplates(names) {
 function readCuentas() {
     return readAllRows('cuentas');
 }
+
+// ============================================================================
+// UTILIDAD: FLUSH DATABASE (Limpiar BD para importación limpia)
+// ============================================================================
+
+/**
+ * Limpia todas las tablas de la base de datos EXCEPTO 'estados'.
+ * Útil para reiniciar la BD antes de una importación limpia.
+ * 
+ * @returns {Object} Resultado con resumen de tablas limpiadas
+ */
+function flushDatabase() {
+    const contexto = 'flushDatabase';
+    console.log(`[${contexto}] Iniciando limpieza de base de datos...`);
+
+    // Tablas a limpiar (en orden para respetar FK)
+    const tablasALimpiar = [
+        'presupuestoLineas',  // Depende de actualizaciones
+        'actualizaciones',    // Depende de comunicados
+        'datosGenerales',     // Depende de comunicados
+        'comunicados',        // Depende de cuentas
+        'cuentas',            // Depende de ajustadores
+        'siniestros',         // Depende de aseguradoras
+        'ajustadores',
+        'aseguradoras',
+        'distritosRiego',
+        'empresas',
+        'equipo'
+        // 'estados' - NO SE LIMPIA (permanente)
+    ];
+
+    const resultados = {};
+    let totalEliminados = 0;
+
+    try {
+        tablasALimpiar.forEach(tabla => {
+            try {
+                console.log(`[${contexto}] Limpiando tabla: ${tabla}...`);
+
+                // Obtener la hoja usando TABLE_DEFINITIONS si existe
+                const ss = SpreadsheetApp.getActiveSpreadsheet();
+                const def = TABLE_DEFINITIONS[tabla];
+                const sheetName = def ? def.sheetName : tabla;
+                const sheet = ss.getSheetByName(sheetName);
+
+                if (!sheet) {
+                    console.log(`[${contexto}] Tabla ${tabla} (${sheetName}) no encontrada, saltando.`);
+                    resultados[tabla] = { status: 'NOT_FOUND', count: 0 };
+                    return;
+                }
+
+                const lastRow = sheet.getLastRow();
+
+                if (lastRow <= 1) {
+                    // Solo tiene encabezado o está vacía
+                    console.log(`[${contexto}] Tabla ${tabla} ya está vacía.`);
+                    resultados[tabla] = { status: 'ALREADY_EMPTY', count: 0 };
+                    return;
+                }
+
+                const rowsToDelete = lastRow - 1; // Excluyendo encabezado
+
+                // Eliminar todas las filas de datos (preservar encabezado)
+                sheet.deleteRows(2, rowsToDelete);
+
+                console.log(`[${contexto}] Tabla ${tabla}: ${rowsToDelete} filas eliminadas.`);
+                resultados[tabla] = { status: 'CLEARED', count: rowsToDelete };
+                totalEliminados += rowsToDelete;
+
+            } catch (e) {
+                console.error(`[${contexto}] Error limpiando ${tabla}: ${e.message}`);
+                resultados[tabla] = { status: 'ERROR', message: e.message };
+            }
+        });
+
+        SpreadsheetApp.flush();
+
+        console.log(`[${contexto}] Limpieza completada. Total eliminados: ${totalEliminados}`);
+
+        return {
+            success: true,
+            message: `Base de datos limpiada. ${totalEliminados} registros eliminados.`,
+            detalles: resultados,
+            totalEliminados: totalEliminados,
+            tablasPreservadas: ['estados']
+        };
+
+    } catch (e) {
+        console.error(`[${contexto}] Error general: ${e.message}`);
+        return {
+            success: false,
+            message: `Error al limpiar BD: ${e.message}`,
+            detalles: resultados
+        };
+    }
+}

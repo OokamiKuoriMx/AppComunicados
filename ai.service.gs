@@ -63,7 +63,8 @@ function procesarPdfIA(payload, optFilename) {
                         // Fenomenos often live in Siniestros description or separte catalog. 
                         // I'll grab unique 'fenomeno' from siniestros table if available, or just map descriptions.
                         fenomenos: [...new Set(cache.siniestros.map(s => s.fenomeno).filter(Boolean))],
-                        distritos: [...new Set(cache.distritosRiego.map(d => d.distritoRiego).filter(Boolean))] // Added Distritos
+                        distritos: [...new Set(cache.distritosRiego.map(d => d.distritoRiego).filter(Boolean))],
+                        aseguradoras: [...new Set(cache.aseguradoras.map(a => a.aseguradora || a.nombre).filter(Boolean))]
                     };
                 } catch (errCatalogs) {
                     console.warn(`[${contexto}] No se pudieron cargar catálogos para contexto AI:`, errCatalogs);
@@ -118,6 +119,7 @@ function procesarPdfIA(payload, optFilename) {
 
 /**
  * Valida reglas matemáticas y de negocio críticas antes de aceptar la respuesta IA.
+ * CAMBIO: Si hay diferencia entre total y suma de líneas, las LÍNEAS rigen (autocorrige totalPdf).
  */
 function _validarLogicaNegocio(json) {
     if (!json.header || !json.lineas) return { esValido: false, mensaje: "Estructura JSON incompleta (falta header o lineas)" };
@@ -129,15 +131,16 @@ function _validarLogicaNegocio(json) {
         return { esValido: true };
     }
 
-    // Validar Suma
+    // Calcular Suma de Líneas
     const sumaLineas = json.lineas.reduce((sum, l) => sum + (parseFloat(l.importe) || 0), 0);
     const diff = Math.abs(totalDoc - sumaLineas);
 
-    if (diff > 1.0) { // Tolerancia de $1 peso
-        return {
-            esValido: false,
-            mensaje: `El total del documento (${totalDoc}) no coincide con la suma de las líneas (${sumaLineas}). Diferencia: ${diff}`
-        };
+    // NUEVO: Si hay diferencia, las líneas rigen. Autocorregir totalPdf.
+    if (diff > 1.0 && sumaLineas > 0) {
+        console.warn(`[Validación IA] Autocorrigiendo totalPdf: ${totalDoc} -> ${sumaLineas} (Diferencia: ${diff})`);
+        json.header.totalPdf = sumaLineas;
+        json.header.advertencias = json.header.advertencias || [];
+        json.header.advertencias.push(`Total corregido: ${totalDoc.toFixed(2)} -> ${sumaLineas.toFixed(2)}`);
     }
 
     return { esValido: true };
@@ -153,86 +156,185 @@ function _callGeminiWithPdf(base64Content, filename, errorFeedback = null, catal
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
-    // Construcción del Prompt
+    // Construcción del Prompt Alineado al Excel/CSV
     let promptSystem = `
-Eres un Auditor de Ingeniería experto. Tu misión es extraer datos de reportes financieros técnicos y devolver un JSON válido.
+        Eres un Auditor de Ingeniería experto.
+        Tu misión es extraer datos de reportes técnicos (PDFs) para generar un registro idéntico al que realizaría un auditor humano en un Excel.
 
-## REGLAS CRÍTICAS DE AUDITORÍA (ESTRICLAS):
+        ## PASO 0: ANÁLISIS CONTEXTUAL (LEE TODO EL DOCUMENTO PRIMERO)
+        
+        Antes de extraer datos, LEE y COMPRENDE el contexto completo del documento:
+        
+        1. **¿Es un comunicado ORIGEN o una ACTUALIZACIÓN?**
+           - Busca palabras clave: "Actualización", "sustituye", "revisado", "anexo actualizado"
+           - Si menciona comunicados anteriores (ej: "sustituye al L30A"), es ACTUALIZACIÓN
+        
+        2. **¿Sustituye TODO el presupuesto o solo PARTE?**
+           - "para esta ubicación en particular" → SUSTITUCION_PARCIAL
+           - "revisión integral" o múltiples ubicaciones → REEMPLAZO_TOTAL
+        
+        3. **¿Cuál es la ubicación/tramo afectado?**
+           - Busca en el texto: "área hidráulica del río X", "tramo Y", títulos como "P04 - Río X, GPS Y"
+           - Esta ubicación es el CONCEPTO de la línea, no los detalles (Preliminares, Acarreo)
+        
+        4. **¿Cuál es el monto total del presupuesto revisado?**
+           - Busca la columna "PRESUPUESTO REVISADO" o el TOTAL final
+           - IGNORA los desgloses (Precios Unitarios con UNIDAD, CANTIDAD, P.U.)
 
-1. **CONSULTA DE CATÁLOGOS Y NORMALIZACIÓN (PRIORIDAD ALTA)**:
-   - Se te proporcionarán listas de "AJUSTADORES CONOCIDOS" y "ASEGURADORAS".
-   - **Paso 1**: Extrae el nombre/sigla del documento (Ej: "CTA", "GNP").
-   - **Paso 2**: Búscalo en los catálogos proporcionados.
-     - **COINCIDENCIA ÚNICA**: Si coincide claramente con UNO solo (Ej: "CTA" -> "Charles Taylor Adjusting"), USA EL NOMBRE DEL CATÁLOGO ("ajustadorNombre").
-     - **AMBIGÜEDAD**: Si puede ser varios o no estás seguro:
-       - 'ajustadorNombre': Pon el valor ORIGINAL extraído (Ej: "CTA").
-       - 'ajustadorAmbiguo': true.
-       - 'advertencias': Agrega "Ambigüedad en Ajustador: CTA".
-     - **SIN COINCIDENCIA**: Si no está en catálogo, usa el valor original y marca 'ajustadorAmbiguo': false (es nuevo, no ambiguo).
+        ## REGLAS CRÍTICAS DE TRANSFORMACIÓN:
 
-2. **CLASIFICACIÓN ORIGEN vs ACTUALIZACIÓN**:
-   - **ACTUALIZACIÓN/VERSIÓN**:
-     - Si el ID tiene letra de sufijo (L30A, L30B) -> 'tipoRegistro' es esa letra ("A", "B").
-     - Si el ID es numérico (L30) pero dice "Actualización" -> 'esActualizacionExplicita': true.
-   - **ORIGEN**: Si el ID es numérico puro (L30) y NO dice Actualización.
+        1. **IDENTIFICACIÓN DE LINAJE (Familia vs Versión)**:
+        - **comunicadoId (RAIZ)**: Extrae SOLO la familia del documento.
+            - Si el PDF dice "L30A" -> Escribe **"L30"**.
+            - Si el PDF dice "L04B" -> Escribe **"L04"**.
 
-3. **FECHAS E IDENTIDAD**:
-   - Extract 'fiInicio' y 'fiFin' de la Fecha de Incidencia.
-   - 'fiTexto': El texto literal (Ej: "10 al 11 de octubre de 2023").
-   - 'comunicadoId': Solo la parte corta (L30, L30A). Elimina prefijos.
+        - **tipoRegistro (VERSIÓN)**: **REGLA CRÍTICA**:
+            - **POR DEFECTO ES "ORIGEN"** a menos que encuentres palabras clave específicas.
+            - Busca las palabras: **"Actualización"**, **"Adicional"**, **"sustituye al"**, **"modifica el"**.
+            - Si **NO aparece ninguna** de estas palabras → Escribe **"ORIGEN"** (NO escribas L30, L04, etc.)
+            - Si **SÍ aparece** alguna de estas palabras → Escribe el ID completo de la versión (Ej: **"L30A"**, **"L04B"**).
+            - **EJEMPLOS**:
+                - Documento dice "Comunicado L30" sin mencionar "Actualización" → tipoRegistro: **"ORIGEN"**
+                - Documento dice "Actualización al comunicado L30" → tipoRegistro: **"L30A"** (o el sufijo que corresponda)
+                - Documento dice "Adicional al comunicado L30" → tipoRegistro: **"L30A"** (o el sufijo que corresponda)
 
-4. **FORMATO**:
-    - 'totalPdf': Número float puro.
+        - **versionAnterior (VERSIÓN SUSTITUIDA)**: Si el documento menciona explícitamente a cuál sustituye.
+            - Busca frases como: "sustituye al presentado en nuestro comunicado GL070059-**L30A**"
+            - Extrae la versión mencionada (Ej: "L30A").
+            - Si no menciona, deja vacío.
 
-## FORMATO JSON ESPERADO:
-{
-  "header": {
-    "ajustadorCodigo": "string (Si normalizaste)",
-    "ajustadorNombre": "string (Normalizado o Original si es ambiguo)",
-    "ajustadorAmbiguo": boolean,
-    "valorOriginalAjustador": "string (Lo que decía el PDF)",
-    "aseguradoraCodigo": "string",
-    "aseguradoraNombre": "string",
-    "aseguradoraAmbigua": boolean,
-    "valorOriginalAseguradora": "string",
-    "refCta": "string (Referencia base)",
-    "refSiniestro": "string",
-    "comunicadoId": "string (Ej: L30A)",
-    "esActualizacionExplicita": boolean,
-    "fiInicio": "YYYY-MM-DD",
-    "fiFin": "YYYY-MM-DD",
-    "fiTexto": "string",
-    "descripcionSiniestro": "string",
-    "fenomenoResumen": "string",
-    "estado": "string",
-    "distritoRiego": "string",
-    "fechaDoc": "YYYY-MM-DD",
-    "tipoRegistro": "string (ORIGEN o Letra)",
-    "totalPdf": number,
-    "advertencias": ["string"]
-  },
-  "lineas": [
-    {
-      "concepto": "string",
-      "categoria": "string",
-      "importe": number
-    }
-  ]
-}
-`;
+        - **ubicacionEspecifica**: Si el documento menciona que solo afecta una ubicación/tramo específico.
+            - Busca frases como: "área hidráulica del río **Marabasco** en el tramo **El Rincón**"
+            - Esta ubicación DEBE incluirse en el concepto de TODAS las líneas.
+            - Formato: "Río {Nombre}, Tramo {Tramo} - {Concepto Original}"
+
+        - **tipoAccion (TIPO DE SUSTITUCIÓN)**:
+            - Analiza el contexto del documento para determinar el alcance:
+            - **"REEMPLAZO_TOTAL"**: El documento reemplaza COMPLETAMENTE al anterior.
+                - Indicadores: "revisión integral", "sustituye en su totalidad", múltiples ubicaciones/tramos.
+                - Extrae TODAS las líneas del presupuesto nuevo.
+            - **"SUSTITUCION_PARCIAL"**: SOLO reemplaza UNA ubicación/tramo específico.
+                - Indicadores: "para esta ubicación en particular", "solo el tramo X".
+                
+                **REGLA CRÍTICA PARA SUSTITUCION_PARCIAL**:
+                
+                1. **BUSCA LA UBICACIÓN EN EL TEXTO CONTEXTUAL** (NO en la tabla):
+                   - Lee el párrafo que describe el monto, ejemplo:
+                     "hemos establecido un monto de MX$2,479,657.51... para resarcir los daños en el **bordo del río Arenas**"
+                   - Extrae: ubicación = "BORDO DEL RÍO ARENAS"
+                   - Extrae: importe = 2479657.51
+                
+                2. **IGNORA COMPLETAMENTE LA TABLA DE DESGLOSES**:
+                   - Las tablas con Preliminares, Demoliciones, Terracerías, Estructuras son PARTIDAS de precios unitarios
+                   - ❌ NUNCA extraigas estas como líneas
+                   - ✅ El importe ya está en el texto contextual
+                
+                3. **EXTRAE UNA SOLA LÍNEA**:
+                   - concepto = La ESTRUCTURA de riego (ej: "BORDO DEL RÍO ARENAS", "RÍO PALIZADA MARGEN IZQUIERDA")
+                   - importe = El monto total del texto (ej: $2,479,657.51)
+                   - categoria = "DAÑO FISICO"
+
+        - **descripcion (HISTORIAL)**: Construye la cadena de trazabilidad.
+            - Formato: "{REF_CTA}-{RAIZ}, {VERSION_ANTERIOR}, {VERSION_ACTUAL}"
+            - Ejemplo para L30A: "GL070059-L30, L30A".
+            - Ejemplo para L30B: "GL070059-L30, L30A, L30B".
+            - Si es Nuevo Origen (Ej L04): "GL097117-L04".
+
+        2. **CATEGORIZACIÓN INTELIGENTE (Inferencia)**:
+        - El PDF NO tiene columna "Categoría", debes DEDUCIRLA del texto del 'concepto'.
+        - Reglas:
+            - "Desazolve", "Limpieza", "Extracción" -> **"DESAZOLVES"**
+            - "Mampostería", "Concreto", "Enrocamiento", "Bordo", "Camino", "Estructura" -> **"DAÑO FISICO"**
+            - "Supervisión" -> **"SUPERVISION"**
+        - **NUNCA** dejes este campo vacío.
+
+        3. **FILTRADO DE TABLAS (Limpieza)**:
+        - **IGNORA** tablas de "Precios Unitarios" (que tengan columnas de materiales, maquinaria, P.U.).
+        - **EXTRAE SOLO** las tablas de "Resumen" o "Presupuesto" que describan tramos o ubicaciones (Ríos, Márgenes).
+        - Ignora filas de subtotales o encabezados de tramo que no tengan importe propio.
+        
+        4. **⚠️ REGLA CRÍTICA - TABLAS CON DOS COLUMNAS DE IMPORTE**:
+        
+        CUANDO VEAS UNA TABLA CON ESTAS DOS COLUMNAS:
+        | Concepto | **Importe daño físico MX$** | **Importe Remoción, desazolves MX$** | Importe MX$ |
+        
+        DEBES GENERAR **DOS LÍNEAS SEPARADAS** usando los TOTALES de cada columna:
+        
+        **LÍNEA 1: DAÑO FÍSICO**
+        - concepto: [UBICACIÓN del texto, ej: "BORDO DEL RÍO ARENAS"]
+        - categoria: "DAÑO FISICO"
+        - importe: [TOTAL de columna "Importe daño físico"] → 2379831.72
+        
+        **LÍNEA 2: DESAZOLVES** 
+        - concepto: [MISMA UBICACIÓN]
+        - categoria: "DESAZOLVES"
+        - importe: [TOTAL de columna "Importe Remoción, desazolves"] → 99825.79
+        
+        **EJEMPLO COMPLETO** para la tabla que muestras:
+        "lineas": [
+            { "concepto": "BORDO DEL RÍO ARENAS", "categoria": "DAÑO FISICO", "importe": 2379831.72 },
+            { "concepto": "BORDO DEL RÍO ARENAS", "categoria": "DESAZOLVES", "importe": 99825.79 }
+        ]
+        
+        **NO HAGAS ESTO (INCORRECTO)**:
+        - ❌ Una sola línea con importe total 2,479,657.51
+        - ❌ Líneas separadas por concepto (Preliminares, Demoliciones, etc.)
+        - ❌ Incluir "- DAÑO FÍSICO" en el concepto
+
+        ## FORMATO JSON ESPERADO (Alineado a CSV):
+        {
+        "header": {
+            "refCta": "string (Ej: GL070059)",
+            "ajustadorNombre": "string (CHARLES TAYLOR ADJUSTING)",
+            "comunicadoId": "string (RAIZ: L30)", 
+            "tipoRegistro": "string (CRÍTICO: 'ORIGEN' si NO hay palabras Actualización/Adicional, o 'L30A'/'L30B' si SÍ las hay)",
+            "versionAnterior": "string (Versión que sustituye, Ej: L30A. Vacío si es ORIGEN)",
+            "ubicacionEspecifica": "string (Río Marabasco, Tramo El Rincón. Vacío si aplica a todo)",
+            "tipoAccion": "string (REEMPLAZO_TOTAL o SUSTITUCION_PARCIAL)",
+            "descripcion": "string (HISTORIAL: GL...-L30, L30A)",
+            "fechaDoc": "YYYY-MM-DD",
+            "estado": "string (Ej: COLIMA)",
+            "refSiniestro": "string",
+            "aseguradora": "string (Ej: AGROASEMEX)",
+            "fenomeno": "string (Ej: DAÑOS EN INFRAESTRUCTURA HIDROAGRÍCOLA A CONSECUENCIA DE LOS EFECTOS DEL HURACÁN KAY)",
+            "fi": "string (Fecha de Incidencia. Busca 'F/I:' en el texto y TRANSCRIBE LITERALMENTE tal como aparece. Ej: '03 de diciembre de 2020'. NO convertir a formato fecha)",
+            "fondo": "string (Ej: FONDEN, CADENA, o vacío si no se menciona)",
+            "distritoRiego": "string (Busca: 'Dirección Local [Estado]', 'Distrito de Riego', 'DTT', 'Distrito de Temporal'. Transcribe LITERAL. Ej: 'Dirección Local Campeche', 'DTT 011 MARGARITAS COMITAN')", 
+            "totalPdf": number,
+            "advertencias": ["string"]
+        },
+        "lineas": [
+            {
+            "concepto": "string (Descripción de la obra/tramo Ej: RÍO ARMERÍA MARGEN IZQUIERDA, TRAMO MADRID (LOS SALAZAR))",
+            "categoria": "string (DAÑO FISICO o DESAZOLVES)",
+            "importe": number
+            }
+        ]
+        }
+        `;
 
     if (catalogs) {
-        promptSystem += `\n\n## CATÁLOGOS VÁLIDOS (Entity Resolution):\n`;
-        if (catalogs.distritos && catalogs.distritos.length > 0)
-            promptSystem += `- DISTRITOS/MUNICIPIOS VÁLIDOS: ${JSON.stringify(catalogs.distritos.slice(0, 100))}\n`;
-        if (catalogs.ajustadores && catalogs.ajustadores.length > 0)
-            promptSystem += `- AJUSTADORES CONOCIDOS: ${JSON.stringify(catalogs.ajustadores.slice(0, 50))}\n`;
-        if (catalogs.siniestros && catalogs.siniestros.length > 0)
-            promptSystem += `- SINIESTROS CONOCIDOS: ${JSON.stringify(catalogs.siniestros.slice(0, 50))}\n`;
-        if (catalogs.fenomenos && catalogs.fenomenos.length > 0)
-            promptSystem += `- FENÓMENOS REGISTRADOS: ${JSON.stringify(catalogs.fenomenos.slice(0, 100))}\n`;
+        promptSystem += `\n\n## CATÁLOGOS VÁLIDOS (Entity Resolution):
+REGLA CRÍTICA: Para cada campo catalogado, BUSCA coincidencias en la lista. 
+Si encuentras algo SIMILAR (aunque varíe en redacción, abreviaturas o acentos), USA EL VALOR EXISTENTE.
+Ejemplos de matching:
+- "Dir. Local Campeche" ≈ "DIRECCIÓN LOCAL CAMPECHE" → Usa: "DIRECCIÓN LOCAL CAMPECHE"
+- "DTT 011" ≈ "DISTRITO DE TEMPORAL 011" → Usa el existente
+- "Agroasemex" ≈ "AGROASEMEX" → Usa: "AGROASEMEX"
 
-        promptSystem += `\nUSA ESTAS LISTAS para normalizar tu salid. Prioriza coincidencias existentes.`;
+`;
+        if (catalogs.distritos && catalogs.distritos.length > 0)
+            promptSystem += `- DISTRITOS DE RIEGO EXISTENTES (usa estos si el texto del PDF coincide parcialmente): ${JSON.stringify(catalogs.distritos.slice(0, 100))}\n`;
+        if (catalogs.ajustadores && catalogs.ajustadores.length > 0)
+            promptSystem += `- AJUSTADORES EXISTENTES: ${JSON.stringify(catalogs.ajustadores.slice(0, 50))}\n`;
+        if (catalogs.siniestros && catalogs.siniestros.length > 0)
+            promptSystem += `- SINIESTROS EXISTENTES: ${JSON.stringify(catalogs.siniestros.slice(0, 50))}\n`;
+        if (catalogs.fenomenos && catalogs.fenomenos.length > 0)
+            promptSystem += `- FENÓMENOS EXISTENTES: ${JSON.stringify(catalogs.fenomenos.slice(0, 100))}\n`;
+        if (catalogs.aseguradoras && catalogs.aseguradoras.length > 0)
+            promptSystem += `- ASEGURADORAS EXISTENTES: ${JSON.stringify(catalogs.aseguradoras.slice(0, 50))}\n`;
+
+        promptSystem += `\n**PRIORIDAD**: Si un valor del PDF coincide (incluso parcialmente) con un catálogo existente, DEVUELVE EL VALOR DEL CATÁLOGO, no el texto literal del PDF.`;
     }
 
     if (errorFeedback) {
@@ -327,179 +429,3 @@ Eres un Auditor de Ingeniería experto. Tu misión es extraer datos de reportes 
     throw new Error(`Rate Limit persistente (429). Se agotaron ${MAX_RATE_LIMIT_RETRIES} reintentos.`);
 }
 
-/**
- * Realiza la llamada HTTP a la API de Gemini (versión texto, legacy).
- * Implementa backoff exponencial para Rate Limit (429).
- */
-function _callGeminiAPI(textContext, filename, errorFeedback = null) {
-    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    if (!apiKey) throw new Error('GEMINI_API_KEY no configurada en Propiedades del Script.');
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-
-    // Construcción del Prompt
-    let promptSystem = `
-Eres un Auditor de Ingeniería experto. Tu misión es extraer datos de reportes financieros técnicos ("Charles Taylor Adjusting") y devolver UNICAMENTE un JSON válido.
-
-## REGLAS CRÍTICAS DE AUDITORÍA:
-
-1. **LIMPIEZA NUMÉRICA**: 
-   - Campos 'totalPdf' e 'importe' DEBEN ser números puros (float). 
-   - Elimina '$', ',', textos, y espacios. Ej: "$ 1,500.00" -> 1500.00
-   
-2. **IMPORTES CERO (CANCELACIONES)**:
-   - Si el documento indica "CANCELADO", "SIN IMPORTE", o el total es $0.00:
-   - 'totalPdf' debe ser 0.
-   - 'lineas' debe ser un array vacío [].
-   - NO inventes líneas.
-
-3. **LINAJE Y VERSIONES (CRÍTICO)**:
-   - Identifica el 'comunicadoId' (Ej: L15, L15A).
-   - Identifica el 'tipoRegistro':
-     - Si no tiene letra al final (L15, L103) -> "ORIGEN".
-     - Si tiene letra (L15A, L103C) -> Escribe la letra tal cual (Ej: "A", "C").
-   - **DESCRIPCION HISTÓRICA**: Debes construir el historial acumulativo en el campo 'descripcion'.
-     - Analiza el texto para encontrar referencias a versiones anteriores.
-     - Formato: "{REF_CTA}-{COMUNICADO_RAIZ}, {VERSION_ANTERIOR}, {VERSION_ACTUAL}"
-     - Ejemplo L30C: "GL097115-L30, L30A, L30B, L30C"
-     - IMPORTANTE: Diferencia por contexto. Si L30A es de un municipio diferente a L30B, NO son familia. Solo enlaza los que comparten Ubicación/Siniestro.
-
-4. **CONTEXTO DE CATÁLOGOS**:
-   - 'distritoRiego': Extrae el Distrito o Municipio. Si dice "DTT 020" o "Margaritas", normalizalo.
-   - 'siniestro': Busca códigos como "SCNA-xxxx".
-   - 'ajustador': Simpre es "CHARLES TAYLOR ADJUSTING" (o lo que diga el doc).
-
-## FORMATO JSON ESPERADO:
-{
-  "header": {
-    "refCta": "string (REFERENCIA)",
-    "comunicadoId": "string (Ej: L15A)",
-    "descripcion": "string (HISTORIAL ACUMULATIVO)",
-    "tipoRegistro": "string (ORIGEN o Letra A/B/C)",
-    "fechaDoc": "string (YYYY-MM-DD)",
-    "estado": "string (UPPERCASE)",
-    "refSiniestro": "string (SCNA...)",
-    "aseguradora": "string (AGROASEMEX)",
-    "fenomeno": "string",
-    "fechaSiniestroFi": "string",
-    "distritoRiego": "string",
-    "ajustador": "string",
-    "totalPdf": number
-  },
-  "lineas": [
-    {
-      "concepto": "string (Ubicación/Tramo - NO 'Varios')",
-      "categoria": "string (DAÑO FISICO o DESAZOLVES)",
-      "importe": number
-    }
-  ]
-}
-`;
-
-    if (errorFeedback) {
-        promptSystem += `\n\n⚠️ ATENCIÓN: TU INTENTO ANTERIOR FALLÓ CON ESTE ERROR: "${errorFeedback}". \nREVISA TUS CÁLCULOS Y EL FORMATO JSON.`;
-    }
-
-    const payload = {
-        contents: [{
-            parts: [
-                { text: promptSystem },
-                { text: `--- INICIO DOCUMENTO (${filename}) ---\n${textContext}\n--- FIN DOCUMENTO ---` }
-            ]
-        }],
-        generationConfig: {
-            response_mime_type: "application/json"
-        }
-    };
-
-    const options = {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-    };
-
-    // Loop de reintentos con backoff exponencial para Rate Limit (429)
-    let rateLimitRetries = 0;
-    let lastResponse = null;
-
-    while (rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
-        const response = UrlFetchApp.fetch(url, options);
-        const code = response.getResponseCode();
-        const text = response.getContentText();
-        lastResponse = { code, text };
-
-        if (code === 200) {
-            // Éxito - Procesar respuesta
-            const respJson = JSON.parse(text);
-            const rawContent = respJson.candidates[0].content.parts[0].text;
-
-            // Limpieza de Markdown ```json ... ``` si la IA lo incluye
-            let cleanJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
-            return JSON.parse(cleanJson);
-        }
-
-        if (code === 429) {
-            rateLimitRetries++;
-            // Backoff exponencial: 15s, 30s, 60s, 120s, 240s
-            const waitTime = BASE_429_WAIT_MS * Math.pow(2, rateLimitRetries - 1);
-            console.warn(`[Gemini 429] Rate Limit alcanzado (Intento ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES}). Esperando ${waitTime / 1000}s...`);
-            Utilities.sleep(waitTime);
-            // Continúa al siguiente intento del loop
-        } else {
-            // Otro error HTTP - No reintentar
-            throw new Error(`Gemini API Error (${code}): ${text}`);
-        }
-    }
-
-    // Si agotamos todos los reintentos de Rate Limit
-    throw new Error(`Rate Limit persistente (429). Se agotaron ${MAX_RATE_LIMIT_RETRIES} reintentos tras esperar tiempo acumulado. Intenta de nuevo más tarde.`);
-}
-
-/**
- * TRUCO DRIVE: Sube PDF -> Convierte a GDoc -> Extrae Texto -> Borra.
- */
-function _extractTextFromPdf(base64Content, filename) {
-    const blob = Utilities.newBlob(Utilities.base64Decode(base64Content), 'application/pdf', filename);
-
-    // 1. Subir a Drive con bandera ocr=true es deprecated en API v3 simple, 
-    // pero insert() con convert: true funciona para PDFs si son texto seleccionable o OCR básico.
-    // Nota: Para OCR puro de imagen, Drive API REST es mejor, pero Apps Script Drive.Files.insert 
-    // lo maneja si se habilita la opción de convertir.
-
-    const resource = {
-        title: `TEMP_OCR_${new Date().getTime()}_${filename}`,
-        mimeType: MimeType.GOOGLE_DOCS
-    };
-
-    // Detectar Versión de API (v2 vs v3)
-    let file;
-    try {
-        // Opción A: Drive API v2 (Legacy standard for this hack)
-        if (Drive.Files.insert) {
-            file = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'es' });
-        }
-        // Opción B: Drive API v3 (Modern default)
-        else if (Drive.Files.create) {
-            // En v3, la conversión es automática si el mimeType es Google Docs
-            file = Drive.Files.create(resource, blob);
-        } else {
-            throw new Error('Método de creación de archivos Drive no encontrado (¿Api activa?).');
-        }
-    } catch (e) {
-        console.warn('Drive OCR falló, detalle:', e.message);
-        throw new Error(`Error Drive API: ${e.message}. (Verifica que el servicio "Drive API" esté habilitado en v2 o v3)`);
-    }
-
-    // 2. Leer Texto
-    // Nota: file.id funciona en ambas versiones
-    const doc = DocumentApp.openById(file.id);
-    const text = doc.getBody().getText();
-
-    // 3. Limpieza
-    try {
-        Drive.Files.remove(file.id);
-    } catch (e) { console.warn('No se pudo borrar archivo temp:', e.message); }
-
-    return text;
-}

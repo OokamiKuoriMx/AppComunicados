@@ -146,7 +146,8 @@
                         const datosIA = resIA.success ? resIA.data : resIA;
 
                         // 3. Analizar Datos vs DB (Previsualización)
-                        const analisis = await serverCall('analizarExtraccionIA', datosIA);
+                        // IMPORTANTE: Pasar documentos previos como contexto de lote para detectar padres
+                        const analisis = await serverCall('analizarExtraccionIA', datosIA, RESULTADOS_BATCH);
 
                         console.log('DEBUG analisis', analisis);
 
@@ -540,6 +541,10 @@
                         analisisBadges.push('<span class="badge bg-warning text-dark ms-1"><i class="bi bi-exclamation-circle me-1"></i>Comunicado Existente</span>');
                     } else if (d.analisis.comunicado?.status === 'NUEVO') {
                         analisisBadges.push('<span class="badge bg-success ms-1">Nuevo Comunicado</span>');
+                    } else if (d.analisis.comunicado?.status === 'ACTUALIZACION_LOTE') {
+                        analisisBadges.push('<span class="badge bg-info text-dark ms-1"><i class="bi bi-arrow-up-circle me-1"></i>Actualización (En Lote)</span>');
+                    } else if (d.analisis.comunicado?.status === 'ACTUALIZACION_BD') {
+                        analisisBadges.push('<span class="badge bg-primary ms-1"><i class="bi bi-arrow-up-circle me-1"></i>Actualización (En BD)</span>');
                     } else if (d.analisis.comunicado?.status === 'ACTUALIZACION') {
                         analisisBadges.push('<span class="badge bg-info text-dark ms-1"><i class="bi bi-arrow-up-circle me-1"></i>Actualización</span>');
                     } else if (d.analisis.comunicado?.status === 'DUPLICADO_CONTENIDO') {
@@ -554,6 +559,8 @@
                         }
                     } else if (d.analisis.comunicado?.status === 'OMITIDO') {
                         analisisBadges.push('<span class="badge bg-secondary ms-1"><i class="bi bi-slash-circle me-1"></i>Sin Cambios (Se omitirá)</span>');
+                    } else if (d.analisis.comunicado?.status === 'ERROR_SIN_PADRE') {
+                        analisisBadges.push('<span class="badge bg-danger ms-1"><i class="bi bi-x-circle me-1"></i>Error: Padre no existe</span>');
                     }
                 }
 
@@ -570,6 +577,8 @@
                         <td class="text-center">${badgeEstado}</td>
                         <td class="small ${d.esValido ? 'text-muted' : 'text-danger'}">
                             ${d.motivo || ''}
+                            ${d.analisis.advertencias && d.analisis.advertencias.length > 0 ?
+                        `<br>${d.analisis.advertencias.map(a => `<span class="badge bg-warning text-dark me-1"><i class="bi bi-exclamation-triangle me-1"></i>${a}</span>`).join('')}` : ''}
                             ${d.analisis.comunicado.debug ?
                         `<br><span style="font-size:0.7em; opacity:0.7; font-family:monospace;">
                                 [DBG: CSV="${d.analisis.comunicado.debug.csvEstado}" | RES=${d.analisis.comunicado.debug.resId} | DB=${d.analisis.comunicado.debug.dbId}]

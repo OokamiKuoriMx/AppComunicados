@@ -467,29 +467,39 @@
 
 <!-- Modal Desglose Presupuestal -->
 <div class="modal fade" id="modalPresupuestoDetalle" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
-            <div class="modal-header bg-light">
-                <h5 class="modal-title">Desglose Presupuestal</h5>
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-list-check me-2"></i>Desglose Presupuestal</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                    aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <table class="table table-sm borderless">
-                    <thead>
-                        <tr>
-                            <th>Obra/Concepto</th>
-                            <th>Categoría</th>
-                            <th>Importe</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="modal-presupuesto-lines-body"></tbody>
-                </table>
-                <button class="btn btn-sm btn-outline-primary" onclick="ComunicadoDetalle.addLineaPresupuesto()">+
-                    Agregar Línea</button>
+            <div class="modal-body p-4">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-3">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 45%; min-width: 300px;">Ubicación</th>
+                                <th style="width: 20%; min-width: 140px;">Categoría</th>
+                                <th class="text-end" style="width: 25%; min-width: 150px;">Importe</th>
+                                <th class="text-center" style="width: 10%; min-width: 60px;">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modal-presupuesto-lines-body"></tbody>
+                    </table>
+                </div>
+                <button class="btn btn-outline-primary btn-sm" onclick="ComunicadoDetalle.addLineaPresupuesto()">
+                    <i class="bi bi-plus-lg me-1"></i>Agregar Línea
+                </button>
             </div>
-            <div class="modal-footer justify-content-between">
-                <div class="fw-bold">Total: <span id="modal-total-revision">$0.00</span></div>
-                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Aceptar</button>
+            <div class="modal-footer bg-light justify-content-between">
+                <div class="fs-5">
+                    <span class="text-muted">Total:</span>
+                    <span class="fw-bold text-primary" id="modal-total-revision">$0.00</span>
+                </div>
+                <button type="button" class="btn btn-primary px-4" data-bs-dismiss="modal">
+                    <i class="bi bi-check-lg me-1"></i>Aceptar
+                </button>
             </div>
         </div>
     </div>

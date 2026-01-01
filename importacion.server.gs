@@ -65,10 +65,13 @@ function previsualizarImportacion(fileContent) {
 
 /**
  * API PÚBLICA: Analiza un payload JSON (salida de IA) para generar el objeto de previsualización.
+ * @param {Object} payload - Datos extraídos por la IA (header + lineas)
+ * @param {Array} batchContext - Documentos previamente procesados del mismo lote (para detectar padres)
  */
-function analizarExtraccionIA(payload) {
+function analizarExtraccionIA(payload, batchContext = []) {
     const contexto = 'analizarExtraccionIA';
     console.log(`[${contexto}] Inicio. Payload recibido:`, JSON.stringify(payload).substring(0, 500));
+    console.log(`[${contexto}] BatchContext: ${batchContext.length} documentos previos`);
 
     try {
         if (!payload || !payload.header) {
@@ -76,7 +79,7 @@ function analizarExtraccionIA(payload) {
             throw new Error('Payload inválido: falta header');
         }
 
-        console.log(`[${contexto}] Header: refCta=${payload.header.refCta}, comunicado=${payload.header.comunicadoId}`);
+        console.log(`[${contexto}] Header: refCta=${payload.header.refCta}, comunicado=${payload.header.comunicadoId}, tipo=${payload.header.tipoRegistro}`);
 
         const cache = _loadCatalogsCache();
         console.log(`[${contexto}] Cache cargado. Cuentas: ${cache.cuentas.length}, Comunicados: ${cache.comunicados.length}`);
@@ -88,7 +91,14 @@ function analizarExtraccionIA(payload) {
             validacion: { esValido: true, status: 'OK' }
         };
 
-        const analisisRow = _analizarDocumento(doc, cache);
+        // Convertir batchContext a formato esperado por _analizarDocumento
+        const batchDocs = batchContext.map(ctx => ({
+            header: ctx.rawPayload?.header || ctx.header || {},
+            lineas: ctx.rawPayload?.lineas || ctx.lineas || [],
+            validacion: { esValido: true, status: 'OK' }
+        }));
+
+        const analisisRow = _analizarDocumento(doc, cache, batchDocs);
         console.log(`[${contexto}] Análisis completado:`, JSON.stringify(analisisRow).substring(0, 300));
 
         return { success: true, data: analisisRow };
@@ -142,6 +152,8 @@ function _analizarDocumento(doc, cache, batchDocs = []) {
     let existingCom = null;
     let dgActual = null;
     let resEstadoId = null;
+    let posibleDuplicadoId = null;  // Variable de scope para detección de duplicados
+    let advertencia = null;
 
     // 1. Find Account ID
     const refClean = String(h.refCta || '').trim().toUpperCase();
@@ -150,31 +162,131 @@ function _analizarDocumento(doc, cache, batchDocs = []) {
         String(c.cuenta).toUpperCase().trim() === refClean
     );
     if (cta) {
-
         // =================================================================================
-        // NUEVA LÓGICA: CONTROL DE VERSIONES Y AMBIGÜEDAD (STRICT ORIGEN)
+        // NUEVA LÓGICA DE VALIDACIÓN (2025-12-30) - Basada en Clave: RefCta + ComunicadoID
         // =================================================================================
+        // Clave de búsqueda: RefCta + ComunicadoID (raíz, ej. L30)
+        const _cleanIdFunc = (val) => String(val || '').toUpperCase().replace(/\s+/g, '').trim();
+        const comunicadoIdClean = _cleanIdFunc(h.comunicadoId);
 
-        // 1. Detección de Ambigüedad (L30A sin "Actualización")
-        // La IA ahora devuelve 'tipoRegistro' = 'ORIGEN' si no vio la palabra, aunque sea L30A.
-        // Pero debemos advertir al usuario si parece una versión.
-        const vParsed = _parseVersion(h.comunicadoId);
-        let esAmbiguo = false;
-        let advertencia = null;
+        // Determinar si es ORIGEN o ACTUALIZACION
+        // Es ORIGEN si:
+        // 1. tipoRegistro es vacío, 'ORIGEN', o
+        // 2. tipoRegistro es igual al comunicadoId (ej: ambos son 'L30'), o
+        // 3. tipoRegistro no tiene sufijo de actualización (A, B, C, etc.)
+        const tipoRegistroClean = _cleanIdFunc(h.tipoRegistro || '');
+        const esOrigenExplicito = !h.tipoRegistro || h.tipoRegistro === 'ORIGEN';
+        const tipoIgualComunicado = tipoRegistroClean === comunicadoIdClean;
+        // Detectar si tiene sufijo de actualización: termina en letra A-Z después de números
+        const tieneSufijoActualizacion = /\d+[A-Z]$/i.test(tipoRegistroClean);
 
-        if (vParsed.sufijo && h.tipoRegistro === 'ORIGEN') {
-            // Caso: Tiene letra (L30A) pero NO dice "Actualización".
-            // CAMBIO (2025-12-30): Si tiene sufijo, intentamos buscar padre de todos modos.
-            // Confiamos en que la estructura del ID (L30A) denota versión más que el texto OCR.
-            console.log(`[Import] Sufijo '${vParsed.sufijo}' detectado en ORIGEN. Se intentará vincular como versión.`);
+        const esOrigen = esOrigenExplicito || tipoIgualComunicado || !tieneSufijoActualizacion;
 
-            // Ya no es ambiguo bloqueante, permitimos flujo hacia búsqueda de padres
-            esAmbiguo = false;
+        // Si la IA devolvió mal el tipoRegistro (L30 en vez de ORIGEN), corregirlo
+        if (esOrigen && h.tipoRegistro !== 'ORIGEN') {
+            console.log(`[Import] CORRIGIENDO tipoRegistro: "${h.tipoRegistro}" -> "ORIGEN"`);
+            h.tipoRegistro = 'ORIGEN';
         }
 
-        // A) Validar si es una versión obsoleta (Ej: Subir L30 cuando ya existe L30A)
-        // Solo aplica si NO es ambiguo y realmente estbuscando actualizar familia
-        if (!esAmbiguo) {
+        console.log(`[Import] Procesando: RefCta=${refClean}, ComunicadoID=${comunicadoIdClean}, TipoRegistro=${h.tipoRegistro}, esOrigen=${esOrigen}`);
+
+        if (esOrigen) {
+            // =========================================================================
+            // CASO 1: ES ORIGEN (L30 con tipoRegistro='ORIGEN')
+            // =========================================================================
+            // Verificar si la clave (RefCta + ComunicadoID) ya existe en BD
+            existingCom = cache.comunicados.find(c =>
+                String(c.idReferencia) === String(cta.id) &&
+                _cleanIdFunc(c.comunicado) === comunicadoIdClean
+            );
+
+            if (existingCom) {
+                // EXISTE en BD → OMITIR (evitar duplicados)
+                statusCom = 'OMITIDO';
+                doc.validacion.motivo = `El comunicado ${h.comunicadoId} ya existe en la Base de Datos`;
+                console.log(`[Import] ORIGEN ${h.comunicadoId} ya existe en BD → OMITIDO`);
+            } else {
+                // NO EXISTE → NUEVO REGISTRO
+                statusCom = 'NUEVO';
+                console.log(`[Import] ORIGEN ${h.comunicadoId} es NUEVO`);
+            }
+
+        } else {
+            // =========================================================================
+            // CASO 2: ES ACTUALIZACION (L30A, L30B con tipoRegistro != 'ORIGEN')
+            // =========================================================================
+            // Buscar obligatoriamente el PADRE (clave raíz) en Lote o BD
+            const versionFromTipo = _parseVersion(h.tipoRegistro); // L30A → {base: 'L30', sufijo: 'A', index: 1}
+
+            console.log(`[Import] Buscando padre para actualización ${h.tipoRegistro} (base: ${versionFromTipo.base})`);
+
+            // A) Buscar padre en LOTE ACTUAL (Prioridad 1 - Para Vista Previa de batch)
+            let padreEnLote = null;
+            if (batchDocs && batchDocs.length > 0) {
+                padreEnLote = batchDocs.find(d => {
+                    const dHeader = d.header;
+                    const dRefClean = String(dHeader.refCta || '').trim().toUpperCase();
+                    if (dRefClean !== refClean) return false;
+
+                    // Mismo ComunicadoID (raíz)
+                    if (_cleanIdFunc(dHeader.comunicadoId) !== comunicadoIdClean) return false;
+
+                    // TipoRegistro debe ser menor versión (ORIGEN < L30A < L30B)
+                    const vB = _parseVersion(dHeader.tipoRegistro || 'ORIGEN');
+                    return vB.index < versionFromTipo.index;
+                });
+            }
+
+            // B) Buscar padre en BD
+            const padreEnDB = cache.comunicados.find(c => {
+                if (String(c.idReferencia) !== String(cta.id)) return false;
+                // Mismo ComunicadoID (raíz)
+                return _cleanIdFunc(c.comunicado) === comunicadoIdClean;
+            });
+
+            if (padreEnLote) {
+                // Padre encontrado en LOTE → ACTUALIZACION (EN LOTE)
+                statusCom = 'ACTUALIZACION_LOTE';
+                existingCom = {
+                    id: 'PENDIENTE',
+                    comunicado: padreEnLote.header.comunicadoId,
+                    tipoRegistro: padreEnLote.header.tipoRegistro,
+                    simulado: true
+                };
+                console.log(`[Import] Padre encontrado en LOTE: ${padreEnLote.header.tipoRegistro || 'ORIGEN'} → ${h.tipoRegistro}`);
+
+                // Construir historial de descripción para LOTE también
+                const nuevaDescripcion = _construirHistorial(cache, cta, h.comunicadoId);
+                if (nuevaDescripcion) {
+                    h.descripcion = nuevaDescripcion;
+                    console.log(`[Import] ACTUALIZACION_LOTE: Descripción construida: "${nuevaDescripcion}"`);
+                }
+
+
+            } else if (padreEnDB) {
+                // Padre encontrado en BD → ACTUALIZACION (EN BD)
+                statusCom = 'ACTUALIZACION_BD';
+                existingCom = padreEnDB;
+                console.log(`[Import] Padre encontrado en BD: ${padreEnDB.comunicado} → ${h.tipoRegistro}`);
+
+                // Construir historial de descripción
+                const nuevaDescripcion = _construirHistorial(cache, cta, h.comunicadoId);
+                if (nuevaDescripcion) {
+                    h.descripcion = nuevaDescripcion;
+                }
+
+            } else {
+                // Padre NO EXISTE en ningún lado → ERROR
+                statusCom = 'ERROR_SIN_PADRE';
+                doc.validacion.esValido = false;
+                doc.validacion.status = 'ERROR';
+                doc.validacion.motivo = `No se puede importar ${h.tipoRegistro}: No existe el comunicado padre (${h.comunicadoId}) ni en el lote actual ni en la BD`;
+                console.log(`[Import] ERROR: No existe padre para ${h.tipoRegistro}`);
+            }
+        }
+
+        // Validar si es una versión obsoleta (Ej: Subir L30 cuando ya existe L30A)
+        if (statusCom !== 'OMITIDO' && statusCom !== 'ERROR_SIN_PADRE') {
             const checkObsoleto = _validarVersionObsoleta(cache, cta.id, h.comunicadoId);
             if (checkObsoleto.esObsoleto) {
                 return {
@@ -185,103 +297,13 @@ function _analizarDocumento(doc, cache, batchDocs = []) {
                     monto: h.totalPdf,
                     sumaLineas: v.sumaLineas,
                     status: 'ERROR',
-                    esValido: false, // Invalido porque es viejo
+                    esValido: false,
                     motivo: checkObsoleto.mensaje,
                     analisis: {
                         comunicado: { status: 'OBSOLETO', valor: h.comunicadoId, debug: { msg: checkObsoleto.mensaje } }
                     },
-                    rawPayload: { header: h, lineas: releaseEvents.lineas || [] }
+                    rawPayload: { header: h, lineas: doc.lineas || [] }
                 };
-            }
-        }
-
-        // B) Generar Descripción Histórica Automática
-        // Solo si NO es ambiguo (si es ambiguo, es origen nuevo, inicia su propia historia)
-        if (!esAmbiguo) {
-            const nuevaDescripcion = _construirHistorial(cache, cta, h.comunicadoId);
-            if (nuevaDescripcion) {
-                h.descripcion = nuevaDescripcion;
-            }
-        }
-
-        // C) Validación Estricta de Textos para ORIGEN (Requerimiento)
-        if (h.tipoRegistro === 'ORIGEN') {
-            // Validar Referencia Exacta (Si tenemos forma de saber la esperada... 
-            // Buscar si el comunicado ya existe
-            // USO DE CLEAN ID
-            const _cleanId = (val) => String(val || '').toUpperCase().replace(/\s+/g, '').trim();
-
-            let existingCom = cache.comunicados.find(c =>
-                String(c.idReferencia) === String(cta.id) &&
-                _cleanId(c.comunicado) === _cleanId(doc.header.comunicadoId)
-            );
-
-            if (existingCom) {
-                // YA EXISTE EXACTO -> Revisar si hay cambios (Update) o es igual (Omitir)
-                // Por defecto a actualizar para que entre a validación de cambios
-                docsParaActualizar.push(doc);
-                doc._existingId = existingCom.id; // Marcar ID real
-            } else {
-                // NO EXISTE EXACTO -> Es Nuevo (o Nueva Versión)
-                // Siempre CREAR nuevo registro para L30A, L30B, etc. No sobreescribir L30.
-                docsParaCrear.push(doc);
-
-                // Opcional: Podríamos marcar '_parentVersionId' si quisieramos enlazar, 
-                // pero por ahora el requerimiento es que sea un Nuevo Comunicado con status visual correcto.
-            }
-        }
-
-        // 2. Check strict existence in DB
-        // CRÍTICO: Validamos AMBOS: Que pertenezca a la cuenta correcta (Referencia) Y sea el ID exacto.
-        // Uso de _cleanId para comparación robusta - Definido una sola vez arriba o renombrado si colapsa
-        // Ya definimos _cleanId dentro del bloque anterior? No, parece que fue un error de copy-paste en la herramienta.
-        // Vamos a definirlo con var o let único fuera de ifs.
-
-        const _cleanIdFunc = (val) => String(val || '').toUpperCase().replace(/\s+/g, '').trim();
-
-        existingCom = cache.comunicados.find(c =>
-            String(c.idReferencia) === String(cta.id) &&
-            _cleanIdFunc(c.comunicado) === _cleanIdFunc(h.comunicadoId)
-        );
-
-        // 2.1 LOGICA DE MATCHING / BUSQUEDA DE PADRES (Solo si no es Ambiguo)
-        if (!existingCom && !esAmbiguo) {
-            const version = _parseVersion(h.comunicadoId);
-
-            // Solo si tiene versión (L30 -> L30A)
-            if (version.sufijo) {
-                // A) Buscar en DB (Prioridad 1)
-                existingCom = cache.comunicados.find(c => {
-                    if (String(c.idReferencia) !== String(cta.id)) return false;
-                    const v = _parseVersion(c.comunicado);
-                    // Misma base (L30) y que sea índice MENOR (L30 < L30A)
-                    return v.base === version.base && v.index < version.index;
-                });
-
-                if (existingCom) {
-                    console.log(`[Import] Detectada Actualización de Versión (DB): ${existingCom.comunicado} -> ${h.comunicadoId}`);
-                }
-                // B) Buscar en LOTE ACTUAL (Prioridad 2 - Para Vista Previa)
-                else if (batchDocs && batchDocs.length > 0) {
-                    const parentInBatch = batchDocs.find(d => {
-                        const dHeader = d.header;
-                        const dRefClean = String(dHeader.refCta || '').trim().toUpperCase();
-                        if (dRefClean !== refClean) return false;
-
-                        const vB = _parseVersion(dHeader.comunicadoId);
-                        return vB.base === version.base && vB.index < version.index;
-                    });
-
-                    if (parentInBatch) {
-                        console.log(`[Import] Detectada Actualización en LOTE: ${parentInBatch.header.comunicadoId} -> ${h.comunicadoId}`);
-                        statusCom = 'ACTUALIZACION'; // Modificado para badge azul
-                        existingCom = {
-                            id: 'PENDIENTE',
-                            comunicado: parentInBatch.header.comunicadoId,
-                            simulado: true
-                        };
-                    }
-                }
             }
         }
 
@@ -537,6 +559,12 @@ function _construirHistorial(cache, cta, newComunicadoId) {
     const nueva = _parseVersion(newComunicadoId);
     let historial = new Set();
 
+    // IMPORTANTE: Si es una actualización (tiene sufijo), siempre añadir la base primero
+    // Esto asegura que L30A siempre tenga L30 en historial incluso si L30 está en el mismo lote
+    if (nueva.sufijo) {
+        historial.add(nueva.base); // Añadir L30 si estamos procesando L30A
+    }
+
     // 1. Buscar en BD si ya existe algún hermano o el mismo registro (para sacar su historial previo)
     // Filtramos por cuenta y FAMILIA base (L30)
     const hermanos = cache.comunicados.filter(c => {
@@ -625,12 +653,8 @@ function importarUnico(payload) {
                 payload = JSON.parse(payload);
             } catch (jsonErr) {
                 console.warn(`[${context}] Failed to parse string payload:`, jsonErr);
-                // Continue, maybe it was just a string? But likely invalid.
             }
         }
-
-        // Debug
-        // console.log(`[${context}] Parsed Payload:`, JSON.stringify(payload)); 
 
         if (!payload || !payload.header || !payload.lineas) {
             const keys = payload ? JSON.stringify(Object.keys(payload)) : 'null';
@@ -639,9 +663,38 @@ function importarUnico(payload) {
             throw new Error(`Payload inválido. Recibido: ${type}, Llaves: ${keys}`);
         }
 
-        const item = { header: payload.header, lineas: payload.lineas, validacion: { esValido: true, status: 'OK' } };
-        const loteAgrupado = [item];
         const cache = _loadCatalogsCache();
+
+        // Construir documento base
+        const doc = {
+            header: payload.header,
+            lineas: payload.lineas,
+            validacion: { esValido: true, status: 'OK', sumaLineas: 0 }
+        };
+
+        // Calcular suma de líneas
+        if (doc.lineas && doc.lineas.length > 0) {
+            doc.validacion.sumaLineas = doc.lineas.reduce((sum, l) => sum + (parseFloat(l.importe) || 0), 0);
+        }
+
+        // CRÍTICO: Ejecutar análisis para obtener doc.analisis.comunicado.status
+        const analisisResult = _analizarDocumento(doc, cache, []);
+
+        // Reconstruir item con el análisis incluido
+        const item = {
+            header: payload.header,
+            lineas: payload.lineas,
+            validacion: {
+                esValido: analisisResult.esValido !== false,
+                status: analisisResult.status || 'OK',
+                sumaLineas: doc.validacion.sumaLineas
+            },
+            analisis: analisisResult.analisis || { comunicado: { status: 'NUEVO' } }
+        };
+
+        console.log(`[${context}] Análisis result status: ${item.analisis.comunicado?.status}`);
+
+        const loteAgrupado = [item];
         const result = _procesarBatchInterno(loteAgrupado, cache);
         console.log(`[${context}] Resultado Batch:`, JSON.stringify(result));
         return result;
@@ -735,61 +788,35 @@ function _procesarBatchInterno(loteAgrupado, cache) {
             // Check status for routing
             const st = doc.analisis.comunicado.status;
 
-            if (st === 'NUEVO' || st === 'ACTUALIZACION') {
-                // ACTUALIZACION here means "New Record that is an version" (because existingCom was null)
-                // Or "Update in Batch" (simulated parent)
-                // We treat it as CREATE because we need to insert the row.
-                // (If it was REEMPLAZAR, it means we found an existing ID to overwrite)
-
-                // However, "ACTUALIZACION" logic in `_analizarDocumento` includes cases where `existingCom` IS found relative to parent?
-                // Wait. In `_analizarDocumento`:
-                // If `existingCom` (PARENT) was found:
-                //    `statusCom` -> 'REEMPLAZAR' or 'ACTUALIZACION' (modified above)
-                // Ah, I modified `_analizarDocumento` to set 'ACTUALIZACION' if simulated.
-                // But what if Parent is REAL DB Record?
-                // Previous logic: existingCom = baseCom. THEN `statusCom = 'REEMPLAZAR'`.
-                // So "REEMPLAZAR" implies UPDATE operation.
-
-                // If I want to INSERT L30A (while L30 exists), I CANNOT use REEMPLAZAR if logic uses `existingCom.id` to `update()`.
-                // I must ensure that for VERSIONS (L30 -> L30A), we perform INSERT (Create), NOT Update.
-
-                // CRITICAL CHECK: Does Reemplazar imply Overwrite?
-                // Yes, `docsParaActualizar` usually implies `updateComunicado(id, data)`.
-
-                // We want L30A to be a NEW ROW even if L30 exists.
-                // So we must route it to `docsParaCrear`.
-
-                // If the logic detects "Version Upgrade" (L30 -> L30A), it sets `existingCom`.
-                // If we push to `docsParaActualizar`, we overwrite L30 with L30A. BAD.
-
-                // FIX: For Version Upgrades (L30 -> L30A), we want CREATE.
-                // In `_analizarDocumento`, if existingCom (Parent) is found, we currently fall into "REEMPLAZAR".
-                // But that's wrong for versions.
-                // Actually, the original code had:
-                // `doc._isVersionUpgrade = true; docsParaActualizar.push(doc);` in Phase 0 Classification.
-                // BUT `_analizarDocumento` is Pre-Phase 0 (Preview).
-
-                // Here in `_procesarBatchInterno` (Phase 0), we re-evaluate?
-                // No, `_procesarBatchInterno` iterates `validos`.
-                // It repeats some logic.
-
-                // I will fix Phase 0 logic in this block.
-
-                const vParsed = _parseVersion(doc.header.comunicadoId);
-                // ... logic continues ...
-                // If new, push to create.
-
-                // If I set 'ACTUALIZACION' in Preview, I should respect it here.
+            if (st === 'NUEVO') {
                 docsParaCrear.push(doc);
-
+            } else if (st === 'ACTUALIZACION' || st === 'ACTUALIZACION_LOTE' || st === 'ACTUALIZACION_BD') {
+                // Es una nueva versión (Ej: L30A) -> Crear registro, pero marcar como versión
+                doc._esVersion = true;
+                docsParaCrear.push(doc);
             } else if (st === 'REEMPLAZAR') {
+                // Existe ID exacto y vamos a actualizarlo
+                // CRÍTICO: Buscar el ID del comunicado existente en cache
+                const _cleanId = (val) => String(val || '').toUpperCase().replace(/\s+/g, '').trim();
+                const comExistente = cache.comunicados.find(c =>
+                    String(c.idReferencia) === String(idReferencia) &&
+                    _cleanId(c.comunicado) === _cleanId(doc.header.comunicadoId)
+                );
+                if (comExistente) {
+                    doc._existingComId = comExistente.id;
+                    logBatch(`[${contexto}] REEMPLAZAR: ${doc.header.comunicadoId} -> ComID: ${comExistente.id}`);
+                } else {
+                    logBatch(`[${contexto}] WARN: REEMPLAZAR pero no se encontró comunicado en cache para ${doc.header.comunicadoId}`);
+                }
                 docsParaActualizar.push(doc);
-            } else if (st === 'EXISTE' || st === 'OMITIDO') {
-                // Do nothing explicit, maybe log
+            } else if (st === 'OMITIDO' || st === 'ERROR_SIN_PADRE') {
+                // No hacer nada - omitir
+                logBatch(`[${contexto}] Omitiendo: ${doc.header.refCta}-${doc.header.comunicadoId} (${st})`);
             } else {
-                // Default fallback
+                // Fallback Nuevo
                 docsParaCrear.push(doc);
             }
+
 
             return; // Skip the old logic block below for cleanliness or integrate?
             // The old logic block below re-did the search. I should replace it completely or let it run?
@@ -826,11 +853,12 @@ function _procesarBatchInterno(loteAgrupado, cache) {
         const counts = { newAsegs: 0, newSins: 0, newCuentas: 0, newComs: 0, newDG: 0, newActs: 0, newLines: 0, updatedDG: 0 };
 
         // Aseguradoras
-        const newAseguradoras = _extractUnique(validos, (d => d.header.aseguradoraNombre || d.header.aseguradora), cache.aseguradoras, 'descripción');
+        const newAseguradoras = _extractUnique(validos, (d => d.header.aseguradoraNombre || d.header.aseguradora), cache.aseguradoras, ['aseguradora', 'nombre', 'descripción']);
         if (newAseguradoras.length > 0) {
-            const res = createBatch('aseguradoras', newAseguradoras.map(desc => ({ descripción: desc })));
+            logBatch(`[${contexto}] FASE 1: Creando ${newAseguradoras.length} aseguradoras nuevas: ${JSON.stringify(newAseguradoras)}`);
+            const res = createBatch('aseguradoras', newAseguradoras.map(desc => ({ aseguradora: desc })));
             counts.newAsegs += res.count;
-            _updateCache(cache, 'aseguradoras', res.ids, newAseguradoras, 'descripción');
+            _updateCache(cache, 'aseguradoras', res.ids, newAseguradoras, 'aseguradora');
         }
 
         // Distritos
@@ -895,6 +923,27 @@ function _procesarBatchInterno(loteAgrupado, cache) {
                     return;
                 }
 
+                const st = doc.analisis?.comunicado?.status;
+
+                // CASO ESPECIAL: ACTUALIZACION_BD - El padre ya existe, NO crear nuevo comunicado
+                if (st === 'ACTUALIZACION_BD' && doc._esVersion) {
+                    // Buscar el comunicado padre existente en cache
+                    const _cleanId = (val) => String(val || '').toUpperCase().replace(/\s+/g, '').trim();
+                    const padreExistente = cache.comunicados.find(c =>
+                        String(c.idReferencia) === String(idReferencia) &&
+                        _cleanId(c.comunicado) === _cleanId(doc.header.comunicadoId)
+                    );
+
+                    if (padreExistente) {
+                        // Usar el ID del padre, NO crear uno nuevo
+                        doc._newComId = padreExistente.id;
+                        logBatch(`[${contexto}] ACTUALIZACION_BD: ${doc.header.tipoRegistro} usa padre existente ComID ${padreExistente.id}`);
+                        return; // No agregar a comUnicosPorKey
+                    } else {
+                        logBatch(`[${contexto}] WARN: ACTUALIZACION_BD pero padre no encontrado. Creando como nuevo.`);
+                    }
+                }
+
                 const key = `${idReferencia}|${doc.header.comunicadoId}`;
 
                 if (!comUnicosPorKey.has(key)) {
@@ -926,6 +975,34 @@ function _procesarBatchInterno(loteAgrupado, cache) {
                 SpreadsheetApp.flush();
             }
 
+            // 2B-bis: ASIGNAR IDs A ACTUALIZACIONES EN LOTE
+            // Ahora que los ORIGEN ya tienen IDs, buscar y asignar a los ACTUALIZACION_LOTE
+            const _cleanId = (val) => String(val || '').toUpperCase().replace(/\s+/g, '').trim();
+
+            docsParaCrear.forEach(doc => {
+                // Solo procesar si no tiene ID y es ACTUALIZACION_LOTE
+                if (doc._newComId) return;
+
+                const st = doc.analisis?.comunicado?.status;
+                if (st !== 'ACTUALIZACION_LOTE') return;
+
+                const idReferencia = doc._idReferencia;
+                if (!idReferencia) return;
+
+                // Buscar el comunicado padre (ORIGEN) recién creado en cache
+                const padreRecienCreado = cache.comunicados.find(c =>
+                    String(c.idReferencia) === String(idReferencia) &&
+                    _cleanId(c.comunicado) === _cleanId(doc.header.comunicadoId)
+                );
+
+                if (padreRecienCreado) {
+                    doc._newComId = padreRecienCreado.id;
+                    logBatch(`[${contexto}] ACTUALIZACION_LOTE: ${doc.header.tipoRegistro} asignado a padre ComID ${padreRecienCreado.id}`);
+                } else {
+                    logBatch(`[${contexto}] WARN: ACTUALIZACION_LOTE ${doc.header.tipoRegistro} - padre no encontrado en cache`);
+                }
+            });
+
             // 2C: Crear DatosGenerales y Actualizaciones para cada documento nuevo
             docsParaCrear.forEach(doc => {
                 const idComunicado = doc._newComId;
@@ -936,9 +1013,11 @@ function _procesarBatchInterno(loteAgrupado, cache) {
 
                 const isOrigen = doc.header.tipoRegistro === 'ORIGEN';
 
-                // Crear DatosGenerales (solo una vez por comunicado)
-                const dgExiste = batchDatosGenerales.some(dg => String(dg.idComunicado) === String(idComunicado));
-                if (!dgExiste) {
+                // Crear o Actualizar DatosGenerales
+                const dgExistente = batchDatosGenerales.find(dg => String(dg.idComunicado) === String(idComunicado));
+
+                if (!dgExistente) {
+                    // CREAR nuevo DatosGenerales (primera versión del comunicado)
                     const idEstado = _resolveIdFromCache(cache.estados, doc.header.estado, 'estado');
                     const idSiniestro = _resolveIdFromCache(cache.siniestros, doc.header.refSiniestro, 'siniestro');
                     const idDR = _resolveIdFromCache(cache.distritosRiego, doc.header.distritoRiego, 'distritoRiego');
@@ -955,6 +1034,47 @@ function _procesarBatchInterno(loteAgrupado, cache) {
                         idDR: idDR,
                         idAjustador: idAjustador
                     });
+                } else {
+                    // ACTUALIZAR descripción del DG existente con la última versión
+                    // Esto sucede cuando hay múltiples versiones en el mismo lote (L30, L30A, L30B)
+                    if (doc.header.descripcion && !isOrigen) {
+                        logBatch(`[${contexto}] FASE 2: Actualizando descripción DG (lote) de "${dgExistente.descripcion}" -> "${doc.header.descripcion}"`);
+                        dgExistente.descripcion = doc.header.descripcion;
+
+                        // Si el DG ya tiene un ID (existe en BD), también actualizarlo en BD
+                        if (dgExistente.id) {
+                            try {
+                                const resUpd = updateRow('datosGenerales', dgExistente.id, { descripcion: doc.header.descripcion });
+                                if (resUpd.success) {
+                                    counts.updatedDG = (counts.updatedDG || 0) + 1;
+                                    logBatch(`[${contexto}] FASE 2: Descripción actualizada en BD para DG ID ${dgExistente.id}`);
+                                }
+                            } catch (e) {
+                                logBatch(`[${contexto}] FASE 2: Error actualizando descripción en BD: ${e.message}`);
+                            }
+                        }
+                    }
+                }
+
+                // CASO ESPECIAL: ACTUALIZACION_BD - El DG ya existe en BD, actualizar descripción
+                const st = doc.analisis?.comunicado?.status;
+                if (st === 'ACTUALIZACION_BD' && doc.header.descripcion) {
+                    // Buscar DG existente en cache de BD
+                    const dgEnBD = cache.datosGenerales.find(dg => String(dg.idComunicado) === String(idComunicado));
+                    if (dgEnBD) {
+                        logBatch(`[${contexto}] FASE 2: ACTUALIZACION_BD - Actualizando descripción en BD de "${dgEnBD.descripcion}" -> "${doc.header.descripcion}"`);
+                        try {
+                            const resUpd = updateRow('datosGenerales', dgEnBD.id, { descripcion: doc.header.descripcion });
+                            if (resUpd.success) {
+                                dgEnBD.descripcion = doc.header.descripcion; // Actualizar cache
+                                counts.updatedDG = (counts.updatedDG || 0) + 1;
+                            } else {
+                                logBatch(`[${contexto}] ERROR actualizando descripción: ${resUpd.message}`);
+                            }
+                        } catch (e) {
+                            logBatch(`[${contexto}] EXCEPCION actualizando descripción: ${e.message}`);
+                        }
+                    }
                 }
 
                 // Crear Actualizacion
@@ -972,7 +1092,9 @@ function _procesarBatchInterno(loteAgrupado, cache) {
                     montoCapturado: null,
                     montoSupervisión: (doc.header.totalPdf || 0) * 0.05,
                     fecha: new Date(),
-                    _docLineas: doc.lineas
+                    _docLineas: doc.lineas,
+                    _tipoAccion: doc.header.tipoAccion || null,
+                    _ubicacionEspecifica: doc.header.ubicacionEspecifica || null
                 });
             });
 
@@ -1135,7 +1257,9 @@ function _procesarBatchInterno(loteAgrupado, cache) {
                         montoCapturado: null,
                         montoSupervisión: (doc.header.totalPdf || 0) * 0.05,
                         fecha: new Date(),
-                        _docLineas: doc.lineas
+                        _docLineas: doc.lineas,
+                        _tipoAccion: doc.header.tipoAccion || null,
+                        _ubicacionEspecifica: doc.header.ubicacionEspecifica || null
                     });
                 }
             });
@@ -1151,10 +1275,74 @@ function _procesarBatchInterno(loteAgrupado, cache) {
 
         // Insertar DatosGenerales
         if (batchDatosGenerales.length > 0) {
+            // PRE-INSERT: Actualizar cada DG con la descripción más reciente de su familia
+            // Esto asegura que si L30 y L30A están en el lote, el DG tenga la descripción de L30A
+            logBatch(`[${contexto}] PRE-INSERT: Verificando descripciones de ${batchDatosGenerales.length} DGs...`);
+
+            batchDatosGenerales.forEach(dg => {
+                // Buscar TODOS los docs que pertenecen a este comunicado
+                const docsDeEsteDG = docsParaCrear.filter(d =>
+                    String(d._newComId) === String(dg.idComunicado)
+                );
+
+                if (docsDeEsteDG.length > 1) {
+                    // Hay múltiples versiones (L30, L30A) para este comunicado
+                    // Ordenar por versión (descendente) para obtener la última
+                    const ultimoDoc = docsDeEsteDG.sort((a, b) => {
+                        const vA = _parseVersion(a.header.tipoRegistro || 'ORIGEN');
+                        const vB = _parseVersion(b.header.tipoRegistro || 'ORIGEN');
+                        return vB.index - vA.index;
+                    })[0];
+
+                    if (ultimoDoc && ultimoDoc.header.descripcion && ultimoDoc.header.tipoRegistro !== 'ORIGEN') {
+                        logBatch(`[${contexto}] PRE-INSERT: DG para ComID ${dg.idComunicado}: "${dg.descripcion}" -> "${ultimoDoc.header.descripcion}"`);
+                        dg.descripcion = ultimoDoc.header.descripcion;
+                    }
+                }
+            });
+
             logBatch(`[${contexto}] Insertando ${batchDatosGenerales.length} DatosGenerales...`);
-            createBatch('datosGenerales', batchDatosGenerales);
+            const resDG = createBatch('datosGenerales', batchDatosGenerales);
             counts.newDG = batchDatosGenerales.length;
             SpreadsheetApp.flush();
+
+            // POST-INSERT: Actualizar descripciones con historial acumulado
+            // Esto es necesario porque cuando L30 y L30A están en el mismo lote,
+            // la descripción del DG (insertado con el ORIGEN) debe actualizarse con el historial de L30A
+            if (resDG && resDG.ids && resDG.ids.length > 0) {
+                // Para cada DG insertado, buscar si hay documentos de actualización asociados
+                resDG.ids.forEach((dgId, idx) => {
+                    const dgInsertado = batchDatosGenerales[idx];
+                    if (!dgInsertado) return;
+
+                    // Buscar la última descripción para este idComunicado entre los docs procesados
+                    const docsDeEsteCom = docsParaCrear.filter(d =>
+                        String(d._newComId) === String(dgInsertado.idComunicado)
+                    );
+
+                    // Ordenar por versión (descendente) para obtener la última
+                    const ultimoDoc = docsDeEsteCom.sort((a, b) => {
+                        const vA = _parseVersion(a.header.tipoRegistro || 'ORIGEN');
+                        const vB = _parseVersion(b.header.tipoRegistro || 'ORIGEN');
+                        return vB.index - vA.index;
+                    })[0];
+
+                    if (ultimoDoc && ultimoDoc.header.descripcion && ultimoDoc.header.tipoRegistro !== 'ORIGEN') {
+                        // La última versión tiene el historial completo, actualizar el DG
+                        if (dgInsertado.descripcion !== ultimoDoc.header.descripcion) {
+                            logBatch(`[${contexto}] POST-INSERT: Actualizando descripción DG ID ${dgId}: "${dgInsertado.descripcion}" -> "${ultimoDoc.header.descripcion}"`);
+                            try {
+                                const resUpd = updateRow('datosGenerales', dgId, { descripcion: ultimoDoc.header.descripcion });
+                                if (resUpd.success) {
+                                    counts.updatedDG = (counts.updatedDG || 0) + 1;
+                                }
+                            } catch (e) {
+                                logBatch(`[${contexto}] POST-INSERT: Error: ${e.message}`);
+                            }
+                        }
+                    }
+                });
+            }
         }
 
         // Insertar Actualizaciones
@@ -1166,12 +1354,107 @@ function _procesarBatchInterno(loteAgrupado, cache) {
             // Preparar PresupuestoLineas
             resActs.ids.forEach((idActReal, i) => {
                 const updateObj = batchActualizaciones[i];
-                const lines = updateObj._docLineas || [];
+                let lines = updateObj._docLineas || [];
+
+                // =================================================================
+                // LÓGICA SUSTITUCION_PARCIAL: Copiar líneas del padre y reemplazar
+                // =================================================================
+                const tipoAccion = updateObj._tipoAccion;
+                const ubicacionEspecifica = updateObj._ubicacionEspecifica;
+
+                if (tipoAccion === 'SUSTITUCION_PARCIAL' && ubicacionEspecifica) {
+                    logBatch(`[${contexto}] SUSTITUCION_PARCIAL detectada para ubicación: "${ubicacionEspecifica}"`);
+
+                    // Buscar el ORIGEN del comunicado (esOrigen=1), no el padre inmediato
+                    const idComunicado = updateObj.idComunicado;
+                    const actOrigen = cache.actualizaciones.find(a =>
+                        String(a.idComunicado) === String(idComunicado) &&
+                        (a.esOrigen === 1 || a.esOrigen === '1')
+                    );
+
+                    if (actOrigen) {
+                        logBatch(`[${contexto}] ORIGEN encontrado: Act.id=${actOrigen.id}, revision=${actOrigen.revision}`);
+
+                        // Cargar líneas del ORIGEN desde BD
+                        const lineasPadre = readAllRows('presupuestoLineas').data || [];
+                        const lineasDelOrigen = lineasPadre.filter(l =>
+                            String(l.idActualizacion) === String(actOrigen.id)
+                        );
+
+                        logBatch(`[${contexto}] Líneas del ORIGEN: ${lineasDelOrigen.length}`);
+
+                        if (lineasDelOrigen.length > 0) {
+                            // Copiar todas las líneas del ORIGEN
+                            const lineasCopiadas = lineasDelOrigen.map(l => ({
+                                concepto: l.descripcion,
+                                categoria: l.categoria,
+                                importe: l.importe
+                            }));
+
+                            // Buscar y reemplazar las líneas que coinciden
+                            // Para cada línea de la actualización (lines[]), buscar su equivalente en lineasCopiadas
+                            lines.forEach(lineaUpdate => {
+                                if (!lineaUpdate || !lineaUpdate.concepto) return;
+
+                                const ubicNorm = _normalizarUbicacion(lineaUpdate.concepto);
+                                const catNorm = String(lineaUpdate.categoria || '').toUpperCase().trim();
+                                let encontrada = false;
+
+                                for (let j = 0; j < lineasCopiadas.length; j++) {
+                                    const descNorm = _normalizarUbicacion(lineasCopiadas[j].concepto);
+                                    const catOrigen = String(lineasCopiadas[j].categoria || '').toUpperCase().trim();
+
+                                    // Coincidencia por UBICACIÓN + CATEGORÍA
+                                    const matchUbicacion = _matchUbicaciones(descNorm, ubicNorm);
+                                    const matchCategoria = catNorm === catOrigen ||
+                                        (catNorm.includes('DAÑO') && catOrigen.includes('DAÑO')) ||
+                                        (catNorm.includes('DESAZOLVE') && catOrigen.includes('DESAZOLVE'));
+
+                                    if (matchUbicacion && matchCategoria) {
+                                        logBatch(`[${contexto}] Reemplazando: "${lineasCopiadas[j].concepto}" [${catOrigen}] $${lineasCopiadas[j].importe} -> $${lineaUpdate.importe}`);
+                                        lineasCopiadas[j].importe = lineaUpdate.importe || 0;
+                                        encontrada = true;
+                                        break; // Solo 1 coincidencia por línea de update
+                                    }
+                                }
+
+                                if (!encontrada) {
+                                    logBatch(`[${contexto}] ADICIONANDO: "${lineaUpdate.concepto}" [${catNorm}] $${lineaUpdate.importe}`);
+                                    lineasCopiadas.push({
+                                        concepto: String(lineaUpdate.concepto).toUpperCase().trim(),
+                                        categoria: lineaUpdate.categoria || 'DAÑO FISICO',
+                                        importe: lineaUpdate.importe || 0
+                                    });
+                                }
+                            });
+
+                            lines = lineasCopiadas;
+                            logBatch(`[${contexto}] Líneas finales después de sustitución: ${lines.length}`);
+                        }
+                    } else {
+                        logBatch(`[${contexto}] WARN: No se encontró ORIGEN para SUSTITUCION_PARCIAL, usando líneas del documento directamente`);
+                    }
+                }
+                // =================================================================
+
                 lines.forEach(l => {
+                    // Calculo de Categoría (Fallback si IA falló)
+                    let catFinal = l.categoria;
+                    if (!catFinal || catFinal.trim() === '') {
+                        const desc = String(l.concepto || '').toUpperCase();
+                        if (desc.includes('DESAZOLVE') || desc.includes('LIMPIEZA') || desc.includes('EXTRACCI')) {
+                            catFinal = 'DESAZOLVES';
+                        } else if (desc.includes('SUPERVISI')) {
+                            catFinal = 'SUPERVISION';
+                        } else {
+                            catFinal = 'DAÑO FISICO';
+                        }
+                    }
+
                     batchPresupuestos.push({
                         idActualizacion: idActReal,
-                        descripcion: l.concepto,
-                        categoria: l.categoria,
+                        descripcion: String(l.concepto || 'Sin concepto').toUpperCase().trim(),
+                        categoria: catFinal.toUpperCase(),
                         importe: l.importe,
                         fechaCreacion: new Date()
                     });
@@ -1254,11 +1537,26 @@ function _updateCache(cache, tableKey, newIds, originalKeys, keyField) {
 function _extractUnique(docs, docField, existingList, dbField) {
     const unique = new Set();
     docs.forEach(d => {
-        const val = d.header[docField];
-        if (!val) return;
-        // Check if exists in DB
-        const exists = existingList.some(item => String(item[dbField] || '').toUpperCase() === String(val).toUpperCase());
-        if (!exists) unique.add(val);
+        // Soportar tanto strings (d.header[docField]) como funciones (docField(d))
+        let val;
+        if (typeof docField === 'function') {
+            val = docField(d);
+        } else {
+            val = d.header[docField];
+        }
+        if (!val || String(val).trim() === '') return;
+
+        // Normalizar a mayúsculas
+        const normalizedVal = String(val).toUpperCase().trim();
+
+        // Check if exists in DB (buscar en múltiples campos si dbField es array)
+        const exists = existingList.some(item => {
+            if (Array.isArray(dbField)) {
+                return dbField.some(f => String(item[f] || '').toUpperCase().trim() === normalizedVal);
+            }
+            return String(item[dbField] || '').toUpperCase().trim() === normalizedVal;
+        });
+        if (!exists) unique.add(normalizedVal);
     });
     return Array.from(unique);
 }
@@ -1277,14 +1575,15 @@ function _prepareSiniestrosBatch(validos, cache) {
         const key = String(h.refSiniestro).toUpperCase();
 
         if (!existMap.has(key) && !seen.has(key)) {
-            // Buscar ID Aseguradora (ya deben estar cacheadas tras paso 1)
-            const idAseg = _resolveIdFromCache(cache.aseguradoras, h.aseguradora, ['aseguradora', 'nombre']);
+            // Buscar ID Aseguradora (buscar en múltiples campos)
+            const asegName = h.aseguradoraNombre || h.aseguradora;
+            const idAseg = _resolveIdFromCache(cache.aseguradoras, asegName, ['aseguradora', 'nombre', 'descripción']);
 
             const newSin = {
-                siniestro: h.refSiniestro,
-                fenomeno: h.fenomeno,
-                fi: h.fechaSiniestroFi,
-                fondo: h.fondo,
+                siniestro: String(h.refSiniestro || '').toUpperCase().trim(),
+                fenomeno: String(h.fenomeno || 'SIN DATO').toUpperCase().trim(),
+                fi: String(h.fi || h.fechaSiniestroFi || 'SIN DATO').toUpperCase().trim(),
+                fondo: String(h.fondo || 'SIN DATO').toUpperCase().trim(),
                 idAseguradora: idAseg
             };
             inserts.push(newSin);
@@ -1310,8 +1609,9 @@ function _prepareCuentasBatch(validos, cache, idAjustadorDefault) {
         const key = String(ref).toUpperCase();
 
         if (!existMap.has(key) && !seen.has(key)) {
-            // Resolver Ajustador especifico de esta fila
-            let idAj = _resolveIdFromCache(cache.ajustadores, d.header.ajustador, ['nombreAjustador', 'nombre']);
+            // Resolver Ajustador especifico de esta fila (buscar por ajustadorNombre o ajustador)
+            const ajustadorName = d.header.ajustadorNombre || d.header.ajustador;
+            let idAj = _resolveIdFromCache(cache.ajustadores, ajustadorName, ['nombreAjustador', 'nombre']);
             if (!idAj) idAj = idAjustadorDefault;
 
             const newCta = {
@@ -1345,6 +1645,55 @@ function _resolveIdFromCache(list, value, fieldName) {
 function _findIdAjustadorDefault(ajustadores) {
     const ct = ajustadores.find(a => String(a.nombre || a.nombreAjustador).toUpperCase().includes('CHARLES'));
     return ct ? ct.id : null;
+}
+
+/**
+ * Normaliza una ubicación para comparación fuzzy.
+ * Elimina palabras comunes, acentos, deja solo palabras clave.
+ */
+function _normalizarUbicacion(ubicacion) {
+    if (!ubicacion) return '';
+    return String(ubicacion)
+        .toUpperCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Quitar acentos
+        .replace(/[^A-Z0-9\s]/g, ' ') // Solo letras y números
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Compara dos ubicaciones usando matching fuzzy.
+ * Busca palabras clave comunes (río, bordo, margen, canal, etc.)
+ */
+function _matchUbicaciones(desc1, desc2) {
+    if (!desc1 || !desc2) return false;
+
+    // Palabras clave que identifican estructuras de riego
+    const keywords = ['RIO', 'ARROYO', 'BORDO', 'CANAL', 'MARGEN', 'IZQUIERDA', 'DERECHA',
+        'PRESA', 'DREN', 'COMPUERTA', 'GPS', 'TRAMO', 'PALIZADA', 'ARENAS',
+        'USUMACINTA', 'ARMERIA', 'MARABASCO'];
+
+    // Extraer palabras significativas de cada descripción
+    const words1 = desc1.split(' ').filter(w => w.length > 2);
+    const words2 = desc2.split(' ').filter(w => w.length > 2);
+
+    // Buscar palabras clave coincidentes
+    let coincidencias = 0;
+    let keywordMatch = false;
+
+    for (const w1 of words1) {
+        for (const w2 of words2) {
+            if (w1 === w2) {
+                coincidencias++;
+                if (keywords.includes(w1)) {
+                    keywordMatch = true;
+                }
+            }
+        }
+    }
+
+    // Requiere al menos una palabra clave coincidente Y 2+ palabras totales
+    return keywordMatch && coincidencias >= 2;
 }
 
 function _markError(doc, omitidos, msg) {
