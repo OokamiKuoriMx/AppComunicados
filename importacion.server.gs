@@ -216,9 +216,9 @@ function _analizarDocumento(doc, cache, batchDocs = []) {
             // CASO 2: ES ACTUALIZACION (L30A, L30B con tipoRegistro != 'ORIGEN')
             // =========================================================================
             // Buscar obligatoriamente el PADRE (clave raíz) en Lote o BD
-            const versionFromTipo = _parseVersion(h.tipoRegistro); // L30A → {base: 'L30', sufijo: 'A', index: 1}
-
-            console.log(`[Import] Buscando padre para actualización ${h.tipoRegistro} (base: ${versionFromTipo.base})`);
+            const versionActual = _parseVersion(h.comunicadoId);
+            const baseId = versionActual.base;
+            console.log(`[Import] Buscando padre para actualización ${h.comunicadoId} (base: ${baseId})`);
 
             // A) Buscar padre en LOTE ACTUAL (Prioridad 1 - Para Vista Previa de batch)
             let padreEnLote = null;
@@ -227,21 +227,15 @@ function _analizarDocumento(doc, cache, batchDocs = []) {
                     const dHeader = d.header;
                     const dRefClean = String(dHeader.refCta || '').trim().toUpperCase();
                     if (dRefClean !== refClean) return false;
-
-                    // Mismo ComunicadoID (raíz)
-                    if (_cleanIdFunc(dHeader.comunicadoId) !== comunicadoIdClean) return false;
-
-                    // TipoRegistro debe ser menor versión (ORIGEN < L30A < L30B)
-                    const vB = _parseVersion(dHeader.tipoRegistro || 'ORIGEN');
-                    return vB.index < versionFromTipo.index;
+                    // Verificar Familia
+                    return _parseVersion(dHeader.comunicadoId).base === baseId;
                 });
             }
 
             // B) Buscar padre en BD
             const padreEnDB = cache.comunicados.find(c => {
                 if (String(c.idReferencia) !== String(cta.id)) return false;
-                // Mismo ComunicadoID (raíz)
-                return _cleanIdFunc(c.comunicado) === comunicadoIdClean;
+                return _parseVersion(c.comunicado).base === baseId;
             });
 
             if (padreEnLote) {
@@ -271,7 +265,8 @@ function _analizarDocumento(doc, cache, batchDocs = []) {
 
                 // Construir historial de descripción
                 const nuevaDescripcion = _construirHistorial(cache, cta, h.comunicadoId);
-                if (nuevaDescripcion) {
+                // FIX: No sobrescribir si ya viene descripción de la IA (User Request)
+                if (nuevaDescripcion && !h.descripcion) {
                     h.descripcion = nuevaDescripcion;
                 }
 
@@ -928,10 +923,11 @@ function _procesarBatchInterno(loteAgrupado, cache) {
                 // CASO ESPECIAL: ACTUALIZACION_BD - El padre ya existe, NO crear nuevo comunicado
                 if (st === 'ACTUALIZACION_BD' && doc._esVersion) {
                     // Buscar el comunicado padre existente en cache
-                    const _cleanId = (val) => String(val || '').toUpperCase().replace(/\s+/g, '').trim();
+                    // Buscar el comunicado padre existente en cache
+                    const baseId = _parseVersion(doc.header.comunicadoId).base;
                     const padreExistente = cache.comunicados.find(c =>
                         String(c.idReferencia) === String(idReferencia) &&
-                        _cleanId(c.comunicado) === _cleanId(doc.header.comunicadoId)
+                        _parseVersion(c.comunicado).base === baseId
                     );
 
                     if (padreExistente) {
@@ -990,9 +986,11 @@ function _procesarBatchInterno(loteAgrupado, cache) {
                 if (!idReferencia) return;
 
                 // Buscar el comunicado padre (ORIGEN) recién creado en cache
+                // Buscar el comunicado padre (ORIGEN) recién creado en cache
+                const baseId = _parseVersion(doc.header.comunicadoId).base;
                 const padreRecienCreado = cache.comunicados.find(c =>
                     String(c.idReferencia) === String(idReferencia) &&
-                    _cleanId(c.comunicado) === _cleanId(doc.header.comunicadoId)
+                    _parseVersion(c.comunicado).base === baseId
                 );
 
                 if (padreRecienCreado) {
@@ -1016,7 +1014,45 @@ function _procesarBatchInterno(loteAgrupado, cache) {
                 // Crear o Actualizar DatosGenerales
                 const dgExistente = batchDatosGenerales.find(dg => String(dg.idComunicado) === String(idComunicado));
 
-                if (!dgExistente) {
+                // LÓGICA STRICTA: Si NO es ORIGEN -> Actualizar Descripción en BD
+                if (!dgExistente && doc.header.tipoRegistro !== 'ORIGEN') {
+                    // Si NO es Origen, buscamos el DG existente usando ID_REF + COMUNICADO_BASE (L30)
+                    // y actualizamos SU descripción directamente con la descripción del Header (IA).
+                    logBatch(`[${contexto}] NO ES ORIGEN (${doc.header.tipoRegistro}): Buscando DG para actualizar descripción...`);
+
+                    const cleanBase = _parseVersion(doc.header.comunicadoId).base;
+
+                    // 1. Buscar Comunicado Padre
+                    const comPadre = cache.comunicados.find(c =>
+                        String(c.idReferencia) === String(idReferencia) &&
+                        _parseVersion(c.comunicado).base === cleanBase
+                    );
+
+                    // 2. Buscar DatosGenerales de ese comunicado
+                    const dgEnBD = comPadre ? cache.datosGenerales.find(dg => String(dg.idComunicado) === String(comPadre.id)) : null;
+
+                    if (dgEnBD) {
+                        logBatch(`[${contexto}] ACTUALIZACION ENCONTRADA: Actualizando descripción de DG existente ID ${dgEnBD.id}`);
+
+                        // Actualizar en BD
+                        try {
+                            const resUpd = updateRow('datosGenerales', dgEnBD.id, { descripcion: doc.header.descripcion });
+                            if (resUpd.success) {
+                                dgEnBD.descripcion = doc.header.descripcion; // Actualizar cache local
+                                counts.updatedDG = (counts.updatedDG || 0) + 1;
+                            }
+                        } catch (e) {
+                            logBatch(`[${contexto}] Error al actualizar descripción DG: ${e.message}`);
+                        }
+
+                        // Ya actualizamos el existente, NO necesitamos crear uno nuevo en batchDatosGenerales
+                        // PERO sí necesitamos que el código de abajo (Actualizaciones) funcione.
+                        // Usaremos el ID del comunicado existente.
+                        var idComunicadoExistente = dgEnBD.idComunicado;
+                    }
+                }
+
+                if (!dgExistente && !idComunicadoExistente) {
                     // CREAR nuevo DatosGenerales (primera versión del comunicado)
                     const idEstado = _resolveIdFromCache(cache.estados, doc.header.estado, 'estado');
                     const idSiniestro = _resolveIdFromCache(cache.siniestros, doc.header.refSiniestro, 'siniestro');
@@ -1184,7 +1220,10 @@ function _procesarBatchInterno(loteAgrupado, cache) {
 
                     // RECALCULAR Historial en tiempo real usando el cache (que se irá actualizando en cada ciclo del loop)
                     const descCalculada = _construirHistorial(cache, ctaObj, doc.header.comunicadoId);
-                    const descFinal = descCalculada || doc.header.descripcion || '';
+
+                    // FIX: Prioridad a la descripción del Header (IA) sobre la calculada (User Request)
+                    // Especialmente si NO es origen (L30A), queremos la descripción explicita "L30, L30A"
+                    const descFinal = doc.header.descripcion || descCalculada || '';
 
                     if (descFinal) {
                         const descNueva = String(descFinal).trim();
@@ -1192,11 +1231,28 @@ function _procesarBatchInterno(loteAgrupado, cache) {
 
                         logBatch(`[${contexto}] DEBUG Descripción - Calc: "${descNueva}" | DB: "${descExistente}"`);
 
-                        // Solo actualizar si es diferente
-                        if (normalizarTexto(descNueva) !== normalizarTexto(descExistente)) {
-                            updates.descripcion = descNueva;
+                        // Verificar si debemos forzar actualización por tipo de acción
+                        const tipoAccion = doc.header.tipoAccion;
+                        const esSustitucion = tipoAccion === 'SUSTITUCION_PARCIAL' || tipoAccion === 'SUSTITUCION_TOTAL';
+
+                        // Si es sustitución explícita, PREFERIR la descripción del header sobre la calculada
+                        // y FORZAR la actualización si hay algo en el header
+                        let finalDescToUse = descNueva;
+                        let forceUpdate = false;
+
+                        if (esSustitucion && doc.header.descripcion) {
+                            finalDescToUse = String(doc.header.descripcion).trim();
+                            if (finalDescToUse !== descExistente) {
+                                forceUpdate = true;
+                                logBatch(`[${contexto}] -> FORZANDO actualización por Sustitución: "${finalDescToUse}"`);
+                            }
+                        }
+
+                        // Solo actualizar si es diferente O si se fuerza
+                        if (forceUpdate || normalizarTexto(finalDescToUse) !== normalizarTexto(descExistente)) {
+                            updates.descripcion = finalDescToUse;
                             doUpdate = true;
-                            logBatch(`[${contexto}] -> Descripción ACTUALIZADA: "${descExistente}" -> "${descNueva}"`);
+                            logBatch(`[${contexto}] -> Descripción ACTUALIZADA: "${descExistente}" -> "${finalDescToUse}"`);
                         } else {
                             logBatch(`[${contexto}] -> Descripción SIN CAMBIOS (idéntica normalizada)`);
                         }
